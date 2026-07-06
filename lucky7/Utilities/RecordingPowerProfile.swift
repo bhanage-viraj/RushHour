@@ -19,7 +19,11 @@ struct RecordingPowerProfile {
     static func recording(plannedSessionSeconds: TimeInterval) -> RecordingPowerProfile {
         let planned = max(plannedSessionSeconds, AppConstants.minimumPlannedSessionSeconds)
         let interval = AppConstants.captureIntervalSeconds(plannedSessionSeconds: planned)
-        let fps = min(max(ceil((1 / interval) * 2), 1), 30)
+        let naturalFPS = ceil((1 / interval) * 2)
+        let fps = min(
+            max(naturalFPS, AppConstants.minimumRecordingCameraFPS),
+            AppConstants.maximumRecordingCameraFPS
+        )
         return RecordingPowerProfile(
             plannedSessionSeconds: planned,
             captureIntervalSeconds: interval,

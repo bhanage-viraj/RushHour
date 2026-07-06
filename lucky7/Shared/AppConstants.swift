@@ -29,6 +29,11 @@ enum AppConstants {
     /// Camera ~30 fps — used only for logging / estimates.
     static let cameraFramesPerSecond: Double = 30
 
+    /// Keep the live recording preview smooth without returning to full 30 fps cost.
+    /// The timelapse sampler still writes only the needed frames.
+    static let minimumRecordingCameraFPS: Double = 20
+    static let maximumRecordingCameraFPS: Double = 25
+
     /// Minimum planned session length used for sampling math.
     static let minimumPlannedSessionSeconds: TimeInterval = 60
 
