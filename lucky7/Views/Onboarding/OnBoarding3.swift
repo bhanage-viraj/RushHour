@@ -16,7 +16,6 @@ struct OnBoarding3: View {
     
     @State private var showPicker = false
     @State private var isRequestingAuth = false
-    @State private var isDisabled = true
     @State private var authError: String?
     
     let onDone: () -> Void
@@ -24,13 +23,8 @@ struct OnBoarding3: View {
     var body: some View {
         OnboardingScreenTemplate(
             step: 3,
-            isDisabled: isDisabled,
-            onContinue: {
-                #if os(iOS)
-                focusController.persistSelection()
-                #endif
-                onDone()
-            },
+            onContinue: finishOnboarding,
+            onSkip: finishOnboarding,
             onBack: goBack,
             onGoPrevious: goBack
         ) {
@@ -80,17 +74,12 @@ struct OnBoarding3: View {
             
             pickerCard
             
-            Text("You can change it later in settings")
+            Text("Optional — you can set this up later in settings")
                 .font(.system(size: 13))
                 .foregroundStyle(.black.opacity(0.5))
                 .padding()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        #if os(iOS)
-        .onChange(of: focusController.hasSelection) { _, hasSelection in
-            isDisabled = !hasSelection
-        }
-        #endif
     }
     
     @ViewBuilder
@@ -128,21 +117,13 @@ struct OnBoarding3: View {
         #endif
     }
     
-    private var continueButton: some View {
-        Button {
-            #if os(iOS)
+    private func finishOnboarding() {
+        #if os(iOS)
+        if focusController.hasSelection {
             focusController.persistSelection()
-            #endif
-            onDone()
-        } label: {
-            Text("CONTINUE")
-                .font(.custom("SpecialGothicExpandedOne-Regular", size: 15))
-                .tracking(1.2)
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 18)
-                .background(.black, in: Capsule())
         }
+        #endif
+        onDone()
     }
     
     #if os(iOS)
