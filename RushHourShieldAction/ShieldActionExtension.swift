@@ -60,9 +60,8 @@ class ShieldActionExtension: ShieldActionDelegate {
     }
 
     // Shared return logic for app / category / web-domain shields.
-    // .openParentalControlsApp (iOS 26.5) is a best-effort auto-open (no-op on iOS 26 per FB18997699);
-    // the notification the user taps is the reliable return. Schedule it durably (addAndWait blocks until
-    // the daemon accepts it), THEN deliver the response synchronously on this call stack.
+    // Schedule the return notification durably (addAndWait blocks until the daemon accepts it),
+    // THEN deliver the response synchronously on this call stack.
     private func handleAction(_ action: ShieldAction, tokenData: Data?, completionHandler: @escaping (ShieldActionResponse) -> Void) {
         switch action {
         case .primaryButtonPressed:
@@ -78,14 +77,9 @@ class ShieldActionExtension: ShieldActionDelegate {
         }
     }
 
-    // .openParentalControlsApp auto-opens Rush Hour on 26.5 — that's the instant redirect back.
-    // (the tapped notification stays as the fallback if it ever no-ops.)
+    // Notifications are the reliable return path; close the shield after scheduling.
     private func respond(_ completionHandler: @escaping (ShieldActionResponse) -> Void) {
-        if #available(iOS 26.5, *) {
-            completionHandler(.openParentalControlsApp)
-        } else {
-            completionHandler(.close)
-        }
+        completionHandler(.close)
     }
 
     private func recordAction(tokenData: Data?, action: String) {

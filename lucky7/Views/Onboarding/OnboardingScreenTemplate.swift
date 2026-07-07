@@ -10,6 +10,7 @@ struct OnboardingScreenTemplate<Content: View>: View {
     let buttonText: String?
     var isDisabled: Bool?
     var onContinue: () -> Void
+    var onSkip: (() -> Void)?
     var onBack: (() -> Void)?
     var onGoPrevious: (() -> Void)?
     var onGoNext: (() -> Void)?
@@ -20,6 +21,7 @@ struct OnboardingScreenTemplate<Content: View>: View {
         buttonText: String? = nil,
         isDisabled: Bool? = false,
         onContinue: @escaping () -> Void = {},
+        onSkip: (() -> Void)? = nil,
         onBack: (() -> Void)? = nil,
         onGoPrevious: (() -> Void)? = nil,
         onGoNext: (() -> Void)? = nil,
@@ -29,6 +31,7 @@ struct OnboardingScreenTemplate<Content: View>: View {
         self.buttonText = buttonText
         self.isDisabled = isDisabled
         self.onContinue = onContinue
+        self.onSkip = onSkip
         self.onBack = onBack
         self.onGoPrevious = onGoPrevious
         self.onGoNext = onGoNext
@@ -85,21 +88,33 @@ struct OnboardingScreenTemplate<Content: View>: View {
 
                     Spacer(minLength: 20)
 
-                    Button(action: onContinue) {
-                        Text(buttonText ?? "CONTINUE")
-                            .font(.system(size: 16, weight: .heavy))
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 20)
-                            .background(Capsule().fill(Color.black))
+                    VStack(spacing: 12) {
+                        if let onSkip {
+                            Button(action: onSkip) {
+                                Text("Skip for now")
+                                    .font(.system(size: 15, weight: .medium))
+                                    .foregroundStyle(.black.opacity(0.55))
+                            }
+                            .accessibilityLabel("Skip for now")
+                            .accessibilityHint("Continue without blocking apps")
+                        }
+
+                        Button(action: onContinue) {
+                            Text(buttonText ?? "CONTINUE")
+                                .font(.system(size: 16, weight: .heavy))
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 20)
+                                .background(Capsule().fill(Color.black))
+                        }
+                        .disabled(isDisabled ?? false)
+                        .opacity(isDisabled ?? false ? 0.5 : 1)
+                        .accessibilityLabel(buttonText ?? "Continue")
+                        .accessibilityHint("Step \(step) of 3")
+                        .accessibilityInputLabels(["continue", "next"])
                     }
-                    .disabled(isDisabled ?? false)
-                    .opacity(isDisabled ?? false ? 0.5 : 1)
                     .padding(.horizontal, 20)
                     .padding(.bottom, 20)
-                    .accessibilityLabel(buttonText ?? "Continue")
-                    .accessibilityHint("Step \(step) of 3")
-                    .accessibilityInputLabels(["continue", "next"])
                 }
 
                 HStack(spacing: 0) {
@@ -196,6 +211,7 @@ extension OnboardingScreenTemplate where Content == EmptyView {
         buttonText: String? = nil,
         isDisabled: Bool? = false,
         onContinue: @escaping () -> Void = {},
+        onSkip: (() -> Void)? = nil,
         onBack: (() -> Void)? = nil,
         onGoPrevious: (() -> Void)? = nil,
         onGoNext: (() -> Void)? = nil
@@ -205,6 +221,7 @@ extension OnboardingScreenTemplate where Content == EmptyView {
             buttonText: buttonText,
             isDisabled: isDisabled,
             onContinue: onContinue,
+            onSkip: onSkip,
             onBack: onBack,
             onGoPrevious: onGoPrevious,
             onGoNext: onGoNext,
