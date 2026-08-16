@@ -114,9 +114,6 @@ struct SessionDetails: View {
             restoreRecoverableVideoState()
             scheduleBackgroundWrapExport()
         }
-        .onChange(of: sessionTitle) { _, _ in
-            scheduleBackgroundWrapExport()
-        }
         .onDisappear {
             backgroundWrapTask?.cancel()
         }
@@ -347,12 +344,15 @@ struct SessionDetails: View {
     private func scheduleBackgroundWrapExport() {
         guard !isSaving else { return }
         backgroundWrapTask?.cancel()
-        let title = exportTitle
         let duration = currentSessionDuration
         backgroundWrapTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 800_000_000)
             guard !Task.isCancelled else { return }
-            sessionRecording.reexportWithTitle(title, durationSeconds: duration, saveToPhotos: false) { finalURL in
+            sessionRecording.reexportWithTitle(
+                exportTitle,
+                durationSeconds: duration,
+                saveToPhotos: false
+            ) { finalURL in
                 guard let finalURL, FileManager.default.fileExists(atPath: finalURL.path) else { return }
                 persistFinalWrap(finalURL, reason: "background export")
             }
@@ -377,10 +377,11 @@ struct SessionDetails: View {
             RecordingDiagnostics.log("SessionDetails saved text session=\(sessionId) raw=\(session.rawClipPath ?? "nil") wrapped=\(session.wrappedVideoPath ?? "nil")")
         }
 
-        // Burn in the user's title and the session's actual focus duration as the hero number.
+        // The durable result is text-free; title and duration are applied only when sharing.
         sessionRecording.reexportWithTitle(
             exportTitle,
-            durationSeconds: sessionDuration
+            durationSeconds: sessionDuration,
+            saveToPhotos: false
         ) { finalURL in
             guard let finalURL, FileManager.default.fileExists(atPath: finalURL.path) else {
                 isSaving = false

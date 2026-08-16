@@ -3,7 +3,7 @@
 //
 // Layout (Application Support, excluded from iCloud backup):
 //   Wraps/sessions/<uuid>.mp4     — full per-session source clips for final exports + rollups
-//   Wraps/finals/wrapped_<uuid>.mp4 — titled session wraps, the only session playback source
+//   Wraps/finals/clean_<uuid>.mp4 — clean session masters, the only session playback source
 //   Wraps/periods/<kind>_<key>.mp4 — stitched weekly/monthly recaps
 
 import Foundation
@@ -47,10 +47,27 @@ enum WrapStorage {
             .appendingPathComponent("wrap_rollup_slice_\(UUID().uuidString).mp4")
     }
 
-    /// A fresh destination for a titled session wrap. Lives in Application Support, not
-    /// tmp — iOS purges tmp whenever it likes, which used to eat saved wraps.
+    /// A styled derivative used only for the active save/share action.
+    static func temporaryShareURL() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("wrap_share_\(UUID().uuidString).mp4")
+    }
+
+    /// A fresh destination for a clean session master. Lives in Application Support,
+    /// not tmp, because iOS is free to purge temporary files.
     static func newFinalURL() -> URL {
-        finalsDir.appendingPathComponent("wrapped_\(UUID().uuidString).mp4")
+        finalsDir.appendingPathComponent("clean_\(UUID().uuidString).mp4")
+    }
+
+    /// `wrapped_*` is the only historical session-master format that burned metadata into
+    /// the video. Treat every other name as clean: a path naming change must never hide the
+    /// in-app metadata overlay or the Clean template.
+    static func isCleanSessionMaster(_ url: URL) -> Bool {
+        !sessionMasterContainsMetadata(url)
+    }
+
+    static func sessionMasterContainsMetadata(_ url: URL) -> Bool {
+        url.lastPathComponent.hasPrefix("wrapped_")
     }
 
     /// The destination for a period recap (deterministic per period so re-runs overwrite).

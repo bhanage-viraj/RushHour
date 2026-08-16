@@ -7,24 +7,28 @@ import CoreGraphics
 import Foundation
 
 enum AppConstants {
-    /// Final wrap plays at 60 fps (smoother timelapse).
+    /// Source timelapse timing stays at 60 fps so 1,800 captured frames remain 30 seconds.
     static let wrappedOutputFPS: Double = 60
 
-    /// Gallery/share exports render at the same cadence as the raw timelapse so
-    /// compression does not drop every other captured frame and make motion jumpy.
-    static let finalRenderFPS: Double = wrappedOutputFPS
+    /// Gallery/share exports render at 30 fps while preserving the source duration.
+    static let finalRenderFPS: Double = 30
 
     /// Target H.264 bitrate for the final 1080x1920 wrap. 4 Mbps keeps 30 second
     /// gallery files around 15 MB instead of the ~80 MB Highest Quality exports.
     static let finalVideoAverageBitRate: Int = 4_000_000
 
     static let finalRenderSize = CGSize(width: 1080, height: 1920)
+    static let landscapeFinalRenderSize = CGSize(width: 1920, height: 1080)
 
     /// Frames in a full-length session (30 sec × 60 fps).
     static let maxFramesForFullSession: Int = 1800
 
     /// Max video length when the user completes the entire planned session.
     static let maxWrappedDurationSeconds: TimeInterval = 30
+
+    /// Instagram's direct Stories handoff accepts background videos up to 20 seconds.
+    /// Story-only derivatives compress the full wrap into this duration.
+    static let instagramStoryMaximumDurationSeconds: TimeInterval = 20
 
     /// Camera ~30 fps — used only for logging / estimates.
     static let cameraFramesPerSecond: Double = 30

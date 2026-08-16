@@ -7,6 +7,7 @@
 //
 
 import AVFoundation
+import CoreImage
 import UIKit
 
 final class ExportEngine {
@@ -17,7 +18,6 @@ final class ExportEngine {
     func generateWrappedVideo(
         rawVideoURL: URL,
         capturedFrameCount: Int,
-        overlay: WrappedVideoOverlay? = nil,
         sessionWallClockSeconds: TimeInterval? = nil,
         plannedSessionSeconds: TimeInterval? = nil,
         completion: @escaping (URL?) -> Void
@@ -93,10 +93,12 @@ final class ExportEngine {
                     try FileManager.default.removeItem(at: outputURL)
                 }
 
-                let videoComposition = try await makePortraitVideoComposition(
+                let renderSize = try await sessionRenderSize(for: videoTrack)
+                let videoComposition = try await makeVideoComposition(
                     for: composition,
                     sourceVideoTrack: videoTrack,
-                    overlay: overlay
+                    renderSize: renderSize,
+                    scaling: .fill
                 )
 
                 let ok = await exportCompressed(
@@ -119,6 +121,158 @@ final class ExportEngine {
                 print("ExportEngine: \(error.localizedDescription)")
                 await MainActor.run { completion(nil) }
             }
+        }
+    }
+
+    /// Burns the selected share template onto the clean session master. The result lives
+    /// in temporary storage and must never replace `Session.wrappedVideoPath`.
+    func generateShareVideo(
+        sourceVideoURL: URL,
+        overlay: WrappedVideoOverlay,
+        template: WrapTemplate
+    ) async -> URL? {
+        guard template.hasVideoOverlay else { return sourceVideoURL }
+
+        let asset = AVURLAsset(url: sourceVideoURL)
+        do {
+            let duration = try await asset.load(.duration)
+            guard CMTimeGetSeconds(duration) > 0,
+                  let videoTrack = try await asset.loadTracks(withMediaType: .video).first else {
+                return nil
+            }
+
+            let composition = AVMutableComposition()
+            guard let compositionTrack = composition.addMutableTrack(
+                withMediaType: .video,
+                preferredTrackID: kCMPersistentTrackID_Invalid
+            ) else {
+                return nil
+            }
+
+            try compositionTrack.insertTimeRange(
+                CMTimeRange(start: .zero, duration: duration),
+                of: videoTrack,
+                at: .zero
+            )
+            compositionTrack.preferredTransform = try await videoTrack.load(.preferredTransform)
+
+            let renderSize = try await VideoOrientationHelper.presentationSize(for: videoTrack)
+            guard let overlayImage = makeOverlayImage(
+                renderSize: renderSize,
+                overlay: overlay,
+                template: template
+            ) else {
+                return nil
+            }
+            let overlayCIImage = CIImage(cgImage: overlayImage)
+            let videoComposition = AVMutableVideoComposition(
+                asset: composition,
+                applyingCIFiltersWithHandler: { request in
+                    let sourceImage = request.sourceImage.clampedToExtent()
+                    let outputImage = overlayCIImage.composited(over: sourceImage)
+                        .cropped(to: request.sourceImage.extent)
+                    request.finish(with: outputImage, context: nil)
+                }
+            )
+            let outputURL = WrapStorage.temporaryShareURL()
+            let ok = await exportCompressed(
+                composition: composition,
+                videoComposition: videoComposition,
+                to: outputURL,
+                bitRate: AppConstants.finalVideoAverageBitRate
+            )
+
+            if ok {
+                print("ExportEngine: share template=\(template.rawValue) output=\(outputURL.lastPathComponent)")
+                return outputURL
+            }
+            return nil
+        } catch {
+            print("ExportEngine.generateShareVideo: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Produces a Story-compatible derivative without changing the clean session master.
+    /// Longer wraps are time-scaled so the complete timelapse remains present.
+    func generateInstagramStoryVideo(sourceVideoURL: URL) async -> URL? {
+        let asset = AVURLAsset(url: sourceVideoURL)
+        do {
+            let duration = try await asset.load(.duration)
+            let durationSeconds = CMTimeGetSeconds(duration)
+            guard durationSeconds.isFinite,
+                  durationSeconds > 0,
+                  let videoTrack = try await asset.loadTracks(withMediaType: .video).first else {
+                return nil
+            }
+
+            let maximumDuration = AppConstants.instagramStoryMaximumDurationSeconds
+            guard durationSeconds > maximumDuration else {
+                return sourceVideoURL
+            }
+
+            let composition = AVMutableComposition()
+            guard let compositionTrack = composition.addMutableTrack(
+                withMediaType: .video,
+                preferredTrackID: kCMPersistentTrackID_Invalid
+            ) else {
+                return nil
+            }
+
+            try compositionTrack.insertTimeRange(
+                CMTimeRange(start: .zero, duration: duration),
+                of: videoTrack,
+                at: .zero
+            )
+            compositionTrack.scaleTimeRange(
+                CMTimeRange(start: .zero, duration: duration),
+                toDuration: CMTime(seconds: maximumDuration, preferredTimescale: 600)
+            )
+
+            let renderSize = try await sessionRenderSize(for: videoTrack)
+            let videoComposition = try await makeVideoComposition(
+                for: composition,
+                sourceVideoTrack: videoTrack,
+                renderSize: renderSize,
+                scaling: .fill
+            )
+            let outputURL = WrapStorage.temporaryShareURL()
+            let ok = await exportCompressed(
+                composition: composition,
+                videoComposition: videoComposition,
+                to: outputURL,
+                bitRate: AppConstants.finalVideoAverageBitRate
+            )
+            return ok ? outputURL : nil
+        } catch {
+            print("ExportEngine.generateInstagramStoryVideo: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Produces the Figma "Transparent" share option as a PNG with alpha. It is a
+    /// temporary share artifact and never replaces the clean session master.
+    func generateTransparentShareImage(
+        sourceVideoURL: URL,
+        overlay: WrappedVideoOverlay
+    ) async -> UIImage? {
+        let asset = AVURLAsset(url: sourceVideoURL)
+        do {
+            guard let videoTrack = try await asset.loadTracks(withMediaType: .video).first else {
+                return nil
+            }
+            let renderSize = try await VideoOrientationHelper.presentationSize(for: videoTrack)
+            guard let image = makeOverlayImage(
+                renderSize: renderSize,
+                overlay: overlay,
+                template: .transparent
+            ) else {
+                return nil
+            }
+            return UIImage(cgImage: image)
+        } catch {
+            print("ExportEngine.generateTransparentShareImage: \(error.localizedDescription)")
+            return nil
         }
     }
 
@@ -208,8 +362,11 @@ final class ExportEngine {
             ) else { return false }
             try compTrack.insertTimeRange(timeRange, of: videoTrack, at: .zero)
 
-            let videoComposition = try await makePortraitVideoComposition(
-                for: composition, sourceVideoTrack: videoTrack, overlay: nil
+            let videoComposition = try await makeVideoComposition(
+                for: composition,
+                sourceVideoTrack: videoTrack,
+                renderSize: AppConstants.finalRenderSize,
+                scaling: .portraitRecap
             )
 
             return await exportCompressed(
@@ -261,26 +418,22 @@ final class ExportEngine {
         }
         guard cursor > .zero else { return false }
 
-        // The slices are already portrait-normalized with identity transform, so the composition
-        // is just the overlay on top of a pass-through video layer.
-        let videoComposition = AVMutableVideoComposition()
-        videoComposition.frameDuration = CMTime(value: 1, timescale: CMTimeScale(AppConstants.finalRenderFPS))
-        videoComposition.renderSize = renderSize
-
-        let instruction = AVMutableVideoCompositionInstruction()
-        instruction.timeRange = CMTimeRange(start: .zero, duration: composition.duration)
-        instruction.layerInstructions = [AVMutableVideoCompositionLayerInstruction(assetTrack: compTrack)]
-        videoComposition.instructions = [instruction]
-
-        let parentLayer = CALayer()
-        parentLayer.frame = CGRect(origin: .zero, size: renderSize)
-        parentLayer.backgroundColor = UIColor.black.cgColor
-        let videoLayer = CALayer()
-        videoLayer.frame = parentLayer.frame
-        parentLayer.addSublayer(videoLayer)
-        parentLayer.addSublayer(makeOverlayLayer(renderSize: renderSize, overlay: overlay))
-        videoComposition.animationTool = AVVideoCompositionCoreAnimationTool(
-            postProcessingAsVideoLayer: videoLayer, in: parentLayer
+        guard let overlayImage = makeOverlayImage(
+            renderSize: renderSize,
+            overlay: overlay,
+            template: .styled
+        ) else {
+            return false
+        }
+        let overlayCIImage = CIImage(cgImage: overlayImage)
+        let videoComposition = AVMutableVideoComposition(
+            asset: composition,
+            applyingCIFiltersWithHandler: { request in
+                let sourceImage = request.sourceImage.clampedToExtent()
+                let outputImage = overlayCIImage.composited(over: sourceImage)
+                    .cropped(to: request.sourceImage.extent)
+                request.finish(with: outputImage, context: nil)
+            }
         )
 
         return await exportCompressed(
@@ -385,12 +538,24 @@ final class ExportEngine {
 
                 writerInput.requestMediaDataWhenReady(on: queue) {
                     while writerInput.isReadyForMoreMediaData {
-                        guard let sampleBuffer = readerOutput.copyNextSampleBuffer() else {
+                        var reachedEnd = false
+                        var appendFailed = false
+
+                        autoreleasepool {
+                            guard let sampleBuffer = readerOutput.copyNextSampleBuffer() else {
+                                reachedEnd = true
+                                return
+                            }
+
+                            appendFailed = !writerInput.append(sampleBuffer)
+                        }
+
+                        if reachedEnd {
                             finish(reader.status == .completed)
                             return
                         }
 
-                        if !writerInput.append(sampleBuffer) {
+                        if appendFailed {
                             print("ExportEngine.exportCompressed append failed: \(writer.error?.localizedDescription ?? "unknown")")
                             finish(false)
                             return
@@ -428,7 +593,7 @@ final class ExportEngine {
         return bytes / 1_000_000
     }
 
-    // MARK: - Portrait output + overlay
+    // MARK: - Session output + overlay
 
     struct WrappedVideoOverlay {
         /// Top line — the session title, the week's date range, or "<Month> Rewind".
@@ -440,13 +605,24 @@ final class ExportEngine {
         let subtitle: String
     }
 
-    private func makePortraitVideoComposition(
+    private enum VideoScaling {
+        case fill
+        case portraitRecap
+    }
+
+    private func sessionRenderSize(for track: AVAssetTrack) async throws -> CGSize {
+        let sourceSize = try await VideoOrientationHelper.presentationSize(for: track)
+        return sourceSize.width > sourceSize.height
+            ? AppConstants.landscapeFinalRenderSize
+            : AppConstants.finalRenderSize
+    }
+
+    private func makeVideoComposition(
         for composition: AVComposition,
         sourceVideoTrack: AVAssetTrack,
-        overlay: WrappedVideoOverlay?
+        renderSize: CGSize,
+        scaling: VideoScaling
     ) async throws -> AVMutableVideoComposition {
-        // Export in portrait 9:16 always. Portrait inputs fill; landscape inputs letterbox.
-        let renderSize = AppConstants.finalRenderSize
         let videoComposition = AVMutableVideoComposition()
         videoComposition.frameDuration = CMTime(value: 1, timescale: CMTimeScale(AppConstants.finalRenderFPS))
         videoComposition.renderSize = renderSize
@@ -462,13 +638,18 @@ final class ExportEngine {
             CGAffineTransform(translationX: -sourceRect.origin.x, y: -sourceRect.origin.y)
         )
 
-        // Decide fill vs fit.
-        // If the oriented video is portrait-ish, fill the portrait canvas.
-        // If it's landscape-ish, fit (letterbox top/bottom).
+        // Session masters preserve their recorded orientation and fill the matching canvas.
+        // Recap slices stay portrait, fitting landscape sources so no content is lost.
         let isPortraitish = orientedSize.height >= orientedSize.width
         let scaleX = renderSize.width / max(orientedSize.width, 1)
         let scaleY = renderSize.height / max(orientedSize.height, 1)
-        let scale = isPortraitish ? max(scaleX, scaleY) : min(scaleX, scaleY)
+        let scale: CGFloat
+        switch scaling {
+        case .fill:
+            scale = max(scaleX, scaleY)
+        case .portraitRecap:
+            scale = isPortraitish ? max(scaleX, scaleY) : min(scaleX, scaleY)
+        }
 
         let scaledSize = CGSize(width: orientedSize.width * scale, height: orientedSize.height * scale)
         let tx = (renderSize.width - scaledSize.width) / 2
@@ -490,47 +671,58 @@ final class ExportEngine {
         instruction.layerInstructions = [layerInstruction]
         videoComposition.instructions = [instruction]
 
-        // Layers
-        let parentLayer = CALayer()
-        parentLayer.frame = CGRect(origin: .zero, size: renderSize)
-        parentLayer.backgroundColor = UIColor.black.cgColor
-
-        let videoLayer = CALayer()
-        videoLayer.frame = parentLayer.frame
-        parentLayer.addSublayer(videoLayer)
-
-        if let overlay {
-            let overlayLayer = makeOverlayLayer(renderSize: renderSize, overlay: overlay)
-            parentLayer.addSublayer(overlayLayer)
-        }
-
-        videoComposition.animationTool = AVVideoCompositionCoreAnimationTool(
-            postProcessingAsVideoLayer: videoLayer,
-            in: parentLayer
-        )
-
         return videoComposition
     }
 
-    private func makeOverlayLayer(renderSize: CGSize, overlay: WrappedVideoOverlay) -> CALayer {
+    private func makeOverlayImage(
+        renderSize: CGSize,
+        overlay: WrappedVideoOverlay,
+        template: WrapTemplate
+    ) -> CGImage? {
+        let sourceLayer = makeOverlayLayer(
+            renderSize: renderSize,
+            overlay: overlay,
+            template: template
+        )
+        let format = UIGraphicsImageRendererFormat()
+        format.opaque = false
+        format.scale = 1
+        let image = UIGraphicsImageRenderer(size: renderSize, format: format).image { context in
+            sourceLayer.render(in: context.cgContext)
+        }
+        return image.cgImage
+    }
+
+    private func makeOverlayLayer(
+        renderSize: CGSize,
+        overlay: WrappedVideoOverlay,
+        template: WrapTemplate
+    ) -> CALayer {
         let layer = CALayer()
         layer.frame = CGRect(origin: .zero, size: renderSize)
         layer.masksToBounds = true
 
-        let maxSide = max(renderSize.width, renderSize.height)
-        let padding: CGFloat = maxSide * 0.06
+        let unit = min(renderSize.width, renderSize.height)
 
         func gothic(_ size: CGFloat) -> UIFont {
             UIFont(name: "SpecialGothicExpandedOne-Regular", size: size)
                 ?? UIFont.systemFont(ofSize: size, weight: .black)
         }
 
-        func paragraphStyle(for font: UIFont, lineBreakMode: NSLineBreakMode) -> NSMutableParagraphStyle {
+        func titleFont(_ size: CGFloat) -> UIFont {
+            gothic(size)
+        }
+
+        func paragraphStyle(
+            for font: UIFont,
+            lineBreakMode: NSLineBreakMode,
+            alignment: NSTextAlignment
+        ) -> NSMutableParagraphStyle {
             let style = NSMutableParagraphStyle()
-            style.alignment = .center
+            style.alignment = alignment
             style.lineBreakMode = lineBreakMode
-            style.minimumLineHeight = font.pointSize * 1.10
-            style.maximumLineHeight = font.pointSize * 1.10
+            style.minimumLineHeight = font.pointSize * WrapOverlayLayout.lineHeightRatio
+            style.maximumLineHeight = font.pointSize * WrapOverlayLayout.lineHeightRatio
             return style
         }
 
@@ -538,122 +730,58 @@ final class ExportEngine {
             _ text: String,
             font: UIFont,
             alpha: CGFloat,
-            lineBreakMode: NSLineBreakMode
+            lineBreakMode: NSLineBreakMode,
+            alignment: NSTextAlignment
         ) -> NSAttributedString {
             NSAttributedString(
                 string: text,
                 attributes: [
                     .font: font,
                     .foregroundColor: UIColor.white.withAlphaComponent(alpha),
-                    .paragraphStyle: paragraphStyle(for: font, lineBreakMode: lineBreakMode)
+                    .paragraphStyle: paragraphStyle(
+                        for: font,
+                        lineBreakMode: lineBreakMode,
+                        alignment: alignment
+                    )
                 ]
             )
         }
 
-        func measuredTextWidth(_ text: String, font: UIFont) -> CGFloat {
-            let bounds = (text as NSString).boundingRect(
-                with: CGSize(width: CGFloat.greatestFiniteMagnitude, height: font.lineHeight * 1.4),
-                options: [.usesLineFragmentOrigin, .usesFontLeading],
-                attributes: [.font: font],
-                context: nil
-            )
-            return ceil(bounds.width)
-        }
-
-        func ellipsizedLine(_ text: String, font: UIFont, maxWidth: CGFloat) -> String {
-            let ellipsis = "..."
-            var base = text.trimmingCharacters(in: .whitespaces)
-
-            guard measuredTextWidth(base, font: font) > maxWidth else { return base }
-            guard measuredTextWidth(ellipsis, font: font) <= maxWidth else { return "" }
-
-            while !base.isEmpty {
-                if measuredTextWidth(base + ellipsis, font: font) <= maxWidth {
-                    return base + ellipsis
-                }
-                base.removeLast()
-            }
-
-            return ellipsis
-        }
-
-        func wrappedHeaderLines(
+        func fittedHeaderLayout(
             _ text: String,
-            font: UIFont,
-            maxWidth: CGFloat,
             maxLines: Int,
-            truncatesOverflow: Bool = false
-        ) -> (lines: [String], didFit: Bool) {
-            let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmedText.isEmpty else { return ([], true) }
+            width: CGFloat,
+            baseSize: CGFloat = 0,
+            minimumSize: CGFloat = 0
+        ) -> (font: UIFont, text: String, lineCount: Int) {
+            let resolvedBaseSize = baseSize > 0
+                ? baseSize
+                : unit * WrapOverlayLayout.titleFontRatio
+            let resolvedMinimumSize = minimumSize > 0 ? minimumSize : unit * 0.024
+            var size = resolvedBaseSize
 
-            var lines: [String] = []
-            var current = ""
-            var didFit = true
-
-            for character in trimmedText {
-                let next = current + String(character)
-                if current.isEmpty || measuredTextWidth(next, font: font) <= maxWidth {
-                    current = next
-                    continue
-                }
-
-                if lines.count == maxLines - 1 {
-                    lines.append(
-                        truncatesOverflow
-                        ? ellipsizedLine(next, font: font, maxWidth: maxWidth)
-                        : current.trimmingCharacters(in: .whitespaces)
-                    )
-                    didFit = false
-                    current = ""
-                    break
-                }
-
-                let line = current.trimmingCharacters(in: .whitespaces)
-                if !line.isEmpty {
-                    lines.append(line)
-                }
-
-                if lines.count >= maxLines {
-                    didFit = false
-                    current = ""
-                    break
-                }
-
-                current = String(character).trimmingCharacters(in: .whitespaces)
-            }
-
-            let lastLine = current.trimmingCharacters(in: .whitespaces)
-            if !lastLine.isEmpty {
-                if lines.count < maxLines {
-                    lines.append(lastLine)
-                } else {
-                    if truncatesOverflow, let last = lines.indices.last {
-                        lines[last] = ellipsizedLine(lines[last] + lastLine, font: font, maxWidth: maxWidth)
-                    }
-                    didFit = false
-                }
-            }
-
-            return (lines, didFit)
-        }
-
-        func fittedHeaderLayout(_ text: String, maxLines: Int, width: CGFloat) -> (font: UIFont, text: String, lineCount: Int) {
-            let baseSize = maxSide * 0.040
-            let minimumSize = maxSide * 0.018
-            var size = baseSize
-
-            while size > minimumSize {
-                let font = gothic(size)
-                let wrapped = wrappedHeaderLines(text, font: font, maxWidth: width, maxLines: maxLines)
+            while size > resolvedMinimumSize {
+                let font = titleFont(size)
+                let wrapped = WrapTextLayout.lines(
+                    for: text,
+                    font: font,
+                    maxWidth: width,
+                    maxLines: maxLines
+                )
                 if wrapped.didFit, !wrapped.lines.isEmpty {
-                    return (font, wrapped.lines.joined(separator: "\n"), wrapped.lines.count)
+                    return (font, wrapped.text, wrapped.lines.count)
                 }
                 size -= 2
             }
 
-            let font = gothic(minimumSize)
-            let wrapped = wrappedHeaderLines(text, font: font, maxWidth: width, maxLines: maxLines, truncatesOverflow: true)
+            let font = titleFont(resolvedMinimumSize)
+            let wrapped = WrapTextLayout.lines(
+                for: text,
+                font: font,
+                maxWidth: width,
+                maxLines: maxLines,
+                truncatesOverflow: true
+            )
             let lines = wrapped.lines.isEmpty ? [text] : wrapped.lines
             return (font, lines.joined(separator: "\n"), lines.count)
         }
@@ -663,66 +791,141 @@ final class ExportEngine {
             font: UIFont,
             frame: CGRect,
             alpha: CGFloat = 1,
-            lineBreakMode: NSLineBreakMode = .byWordWrapping
+            lineBreakMode: NSLineBreakMode = .byWordWrapping,
+            alignment: NSTextAlignment = .center
         ) -> CATextLayer {
             let t = CATextLayer()
-            t.string = attributedText(text, font: font, alpha: alpha, lineBreakMode: lineBreakMode)
-            t.alignmentMode = .center
+            t.string = attributedText(
+                text,
+                font: font,
+                alpha: alpha,
+                lineBreakMode: lineBreakMode,
+                alignment: alignment
+            )
+            switch alignment {
+            case .left: t.alignmentMode = .left
+            case .right: t.alignmentMode = .right
+            default: t.alignmentMode = .center
+            }
             t.isWrapped = true
-            t.contentsScale = UIScreen.main.scale
+            // Video coordinates are already output pixels; screen scale only creates oversized
+            // backing surfaces and can exhaust IOSurface memory during landscape exports.
+            t.contentsScale = 1
             t.truncationMode = .none
-            t.shadowColor = UIColor.black.cgColor
-            t.shadowOpacity = 0.9
-            t.shadowRadius = 6
-            t.shadowOffset = CGSize(width: 0, height: 2)
             t.font = font
             t.fontSize = font.pointSize
             t.frame = frame
             return t
         }
 
-        // The Core Animation canvas used by AVVideoCompositionCoreAnimationTool has a
-        // BOTTOM-LEFT origin: a layer's frame.y is its BOTTOM edge and larger y sits higher
-        // on screen. So to stack header → duration → date from the TOP, we anchor the header
-        // near the top (high y) and step y DOWN for each following line.
-        let contentWidth = renderSize.width - padding * 2
-        let topMargin = renderSize.height * 0.06
+        func fittedDurationFont(maxWidth: CGFloat) -> UIFont {
+            var size = unit * WrapOverlayLayout.durationFontRatio
+            let minimumSize = unit * 0.09
+            while size > minimumSize {
+                let font = gothic(size)
+                if WrapTextLayout.measuredWidth(overlay.duration, font: font) <= maxWidth {
+                    return font
+                }
+                size -= 2
+            }
+            return gothic(minimumSize)
+        }
 
-        // 1. Header — session title, week range, or "<Month> Rewind" (topmost line).
-        let headerMaxLines = 2
-        let headerWrapWidth = contentWidth * 0.84
-        let headerLayout = fittedHeaderLayout(overlay.header, maxLines: headerMaxLines, width: headerWrapWidth)
-        let headerFont = headerLayout.font
-        let headerLineHeight = headerFont.pointSize * 1.10
-        let headerHeight = headerLineHeight * CGFloat(max(headerLayout.lineCount, 1)) + headerFont.pointSize * 0.20
-        let headerY = renderSize.height - topMargin - headerHeight
-        layer.addSublayer(textLayer(
-            headerLayout.text, font: headerFont,
-            frame: CGRect(x: padding, y: headerY, width: contentWidth, height: headerHeight),
-            alpha: 1,
-            lineBreakMode: .byCharWrapping
-        ))
-
-        // 2. Duration — the large hero line, just below the header.
-        let durationFont = gothic(maxSide * 0.085)
-        let durationHeight = durationFont.pointSize * 1.15
-        let durationY = headerY - maxSide * 0.006 - durationHeight
-        layer.addSublayer(textLayer(
-            overlay.duration, font: durationFont,
-            frame: CGRect(x: padding, y: durationY, width: contentWidth, height: durationHeight),
-            alpha: 1
-        ))
-
-        // 3. Subtitle (date) — session wraps only; empty on weekly/monthly so it's skipped.
-        if !overlay.subtitle.isEmpty {
-            let dateFont = gothic(maxSide * 0.026)
-            let dateHeight = dateFont.pointSize * 1.4
-            let dateY = durationY - maxSide * 0.004 - dateHeight
+        func addMetadata(startY: CGFloat) {
+            let titleWidth = renderSize.width * WrapOverlayLayout.titleWidthRatio
+            let titleLayout = fittedHeaderLayout(
+                overlay.header,
+                maxLines: 2,
+                width: titleWidth
+            )
+            let titleHeight = titleLayout.font.pointSize
+                * WrapOverlayLayout.lineHeightRatio
+                * CGFloat(max(titleLayout.lineCount, 1))
+            let titleX = (renderSize.width - titleWidth) / 2
             layer.addSublayer(textLayer(
-                overlay.subtitle, font: dateFont,
-                frame: CGRect(x: padding, y: dateY, width: contentWidth, height: dateHeight),
-                alpha: 0.9
+                titleLayout.text,
+                font: titleLayout.font,
+                frame: CGRect(x: titleX, y: startY, width: titleWidth, height: titleHeight)
             ))
+
+            let durationWidth = renderSize.width * WrapOverlayLayout.durationWidthRatio
+            let durationFont = fittedDurationFont(maxWidth: durationWidth)
+            let durationHeight = durationFont.pointSize * WrapOverlayLayout.lineHeightRatio
+            let durationY = startY + titleHeight
+                + unit * WrapOverlayLayout.contentSpacingRatio
+            layer.addSublayer(textLayer(
+                overlay.duration,
+                font: durationFont,
+                frame: CGRect(
+                    x: (renderSize.width - durationWidth) / 2,
+                    y: durationY,
+                    width: durationWidth,
+                    height: durationHeight
+                )
+            ))
+
+            guard !overlay.subtitle.isEmpty else { return }
+            let dateFont = UIFont.systemFont(
+                ofSize: unit * WrapOverlayLayout.dateFontRatio,
+                weight: .regular
+            )
+            let dateHeight = dateFont.pointSize * WrapOverlayLayout.lineHeightRatio
+            layer.addSublayer(textLayer(
+                overlay.subtitle,
+                font: dateFont,
+                frame: CGRect(
+                    x: titleX,
+                    y: durationY + durationHeight,
+                    width: titleWidth,
+                    height: dateHeight
+                ),
+                alpha: 0.70
+            ))
+        }
+
+        switch template {
+        case .clean:
+            break
+
+        case .styled:
+            addMetadata(startY: renderSize.height * WrapOverlayLayout.styledTopRatio)
+
+        case .transparent:
+            let badgeWidth = unit * WrapOverlayLayout.transparentBadgeWidthRatio
+            let badgeHeight = unit * WrapOverlayLayout.transparentBadgeHeightRatio
+            let badgeFrame = CGRect(
+                x: (renderSize.width - badgeWidth) / 2,
+                y: renderSize.height * WrapOverlayLayout.transparentBadgeTopRatio,
+                width: badgeWidth,
+                height: badgeHeight
+            )
+            let badge = CALayer()
+            badge.frame = badgeFrame
+            badge.borderColor = UIColor.white.cgColor
+            badge.borderWidth = max(unit * 0.0032, 1)
+            badge.cornerRadius = badgeHeight / 2
+            layer.addSublayer(badge)
+
+            let badgeFont = UIFont.systemFont(
+                ofSize: unit * WrapOverlayLayout.transparentBadgeFontRatio,
+                weight: .bold
+            )
+            let badgeTextHeight = badgeFont.pointSize * WrapOverlayLayout.lineHeightRatio
+            layer.addSublayer(textLayer(
+                "TRANSPARENT",
+                font: badgeFont,
+                frame: CGRect(
+                    x: badgeFrame.minX,
+                    y: badgeFrame.midY - badgeTextHeight / 2,
+                    width: badgeFrame.width,
+                    height: badgeTextHeight
+                )
+            ))
+
+            addMetadata(
+                startY: badgeFrame.maxY
+                    + unit * WrapOverlayLayout.transparentBadgeGapRatio
+            )
         }
 
         return layer

@@ -64,6 +64,7 @@ final class TimelapseManager: NSObject {
     private var totalPausedSeconds: Double = 0
     private var pauseBeganWallSeconds: Double?
     private var configuredPosition: AVCaptureDevice.Position = .front
+    private var recordingOrientation: UIInterfaceOrientation = .portrait
     private var sampleBuffersReceived = 0
     private var loggedNotRecordingDrop = false
     private var loggedPausedDrop = false
@@ -236,6 +237,7 @@ final class TimelapseManager: NSObject {
     func startRecording(plannedSessionSeconds: TimeInterval, completion: ((Bool) -> Void)? = nil) {
         writerQueue.async {
             self.resetWriterState()
+            self.recordingOrientation = VideoOrientationHelper.currentRecordingOrientationSync()
             self.plannedSessionSeconds = max(plannedSessionSeconds, AppConstants.minimumPlannedSessionSeconds)
             self.captureIntervalSeconds = AppConstants.captureIntervalSeconds(plannedSessionSeconds: self.plannedSessionSeconds)
             let powerProfile = RecordingPowerProfile.recording(plannedSessionSeconds: self.plannedSessionSeconds)
@@ -265,7 +267,11 @@ final class TimelapseManager: NSObject {
                 self.isRecording = true
                 self.pendingStartCompletion = completion
                 self.startRunning()
-                self.log("startRecording ok raw=\(self.outputURL!.lastPathComponent) interval=\(String(format: "%.3f", self.captureIntervalSeconds))")
+                self.log(
+                    "startRecording ok raw=\(self.outputURL!.lastPathComponent) "
+                        + "interval=\(String(format: "%.3f", self.captureIntervalSeconds)) "
+                        + "orientation=\(VideoOrientationHelper.orientationName(self.recordingOrientation))"
+                )
                 self.writerQueue.asyncAfter(deadline: .now() + .seconds(4)) {
                     guard self.isRecording, self.framesCaptured == 0, self.pendingStartCompletion != nil else { return }
                     self.log("startRecording failed first-frame timeout samples=\(self.sampleBuffersReceived) writerReady=\(self.isWriterReady)")
@@ -728,8 +734,6 @@ final class TimelapseManager: NSObject {
 
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
         input.expectsMediaDataInRealTime = true
-        let rawOrientation = VideoOrientationHelper.currentInterfaceOrientationSync()
-        let recordingOrientation = VideoOrientationHelper.recordingOrientation(from: rawOrientation)
         input.transform = VideoOrientationHelper.writerTransform(
             bufferWidth: width,
             bufferHeight: height,
@@ -763,7 +767,7 @@ final class TimelapseManager: NSObject {
         if recordingStartWallSeconds == nil {
             recordingStartWallSeconds = ProcessInfo.processInfo.systemUptime
         }
-        log("setupWriter ok dimensions=\(width)x\(height) camera=\(configuredPosition.rawValue) orientationRaw=\(VideoOrientationHelper.orientationName(rawOrientation)) orientationApplied=\(VideoOrientationHelper.orientationName(recordingOrientation))")
+        log("setupWriter ok dimensions=\(width)x\(height) camera=\(configuredPosition.rawValue) orientationApplied=\(VideoOrientationHelper.orientationName(recordingOrientation))")
         return true
     }
 
