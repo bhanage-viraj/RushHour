@@ -1054,10 +1054,10 @@ class PreviewView: UIView {
         super.layoutSubviews()
         previewLayer.frame = bounds
         if let connection = previewLayer.connection {
-            // applyToCaptureConnection is async; layoutSubviews cannot be async.
+            // Preview follows the app interface; recording orientation is handled by the writer.
             // Run it asynchronously on the main actor.
             Task { @MainActor in
-                await VideoOrientationHelper.applyToCaptureConnection(connection)
+                await VideoOrientationHelper.applyToPreviewConnection(connection)
             }
         }
     }

@@ -10,6 +10,8 @@ import UniformTypeIdentifiers
 import UIKit
 
 struct WrappedVideoScreen: View {
+    private static let portraitCardSize = CGSize(width: 362, height: 647)
+
     let kind: Kind
     var videoFrames: [UIImage] = []
 
@@ -22,6 +24,9 @@ struct WrappedVideoScreen: View {
     @State private var player: AVPlayer?
     @State private var isPlaying = true
     @State private var sharePayload: VideoSharePayload?
+    @State private var isShowingShareComposer = false
+    @State private var mediaAspectRatio: CGFloat = 9.0 / 16.0
+    @State private var isMigratingLegacyMaster = false
 
     init(kind: Kind, videoFrames: [UIImage] = []) {
         self.kind = kind
@@ -89,9 +94,8 @@ struct WrappedVideoScreen: View {
             guard let start = session?.startTime else { return "" }
             return start
                 .formatted(.dateTime.day().month(.abbreviated).year())
-                .uppercased()
         case .weekly(_, _, _, let periodLabel, _), .monthly(_, _, _, let periodLabel, _):
-            return periodLabel.uppercased()
+            return periodLabel
         }
     }
 
@@ -106,17 +110,30 @@ struct WrappedVideoScreen: View {
         }
     }
 
-    private var shareableVideoURL: URL? { videoURL }
+    private var sourceContainsMetadata: Bool {
+        guard case .session = kind, let videoURL else { return false }
+        return WrapStorage.sessionMasterContainsMetadata(videoURL)
+    }
 
-    private var shareableText: String {
-        "\(displayTitle) — \(durationText) on \(dateText)"
+    private var displayedMediaAspectRatio: CGFloat {
+        mediaAspectRatio > 1
+            ? mediaAspectRatio
+            : Self.portraitCardSize.width / Self.portraitCardSize.height
+    }
+
+    private var shareableVideoURL: URL? {
+        isMigratingLegacyMaster ? nil : videoURL
+    }
+
+    private var shareMetadata: WrapShareMetadata {
+        WrapShareMetadata(title: displayTitle, duration: durationText, date: dateText)
     }
 
     // MARK: - Body
 
     var body: some View {
         ZStack {
-            Color("CanvasBlue")
+            Color.wrappedWatchBlue
                 .ignoresSafeArea()
 
             Image("PatternBackground")
@@ -127,19 +144,24 @@ struct WrappedVideoScreen: View {
 
             VStack(spacing: 0) {
                 topBar
-                    .padding(.horizontal, 20)
-                    .padding(.top, 10)
+                    .frame(height: 48)
 
-                Spacer(minLength: 16)
+                if mediaAspectRatio <= 1 {
+                    mediaCard
+                        .padding(.horizontal, 20)
+                        .padding(.top, 17)
+                        .layoutPriority(1)
 
-                mediaCard
-                    .padding(.horizontal, 20)
-                    .layoutPriority(1)
+                    Spacer(minLength: 16)
+                } else {
+                    Spacer(minLength: 16)
 
-                Spacer(minLength: 16)
+                    mediaCard
+                        .padding(.horizontal, 20)
+                        .layoutPriority(1)
 
-                playPauseButton
-                    .padding(.bottom, 20)
+                    Spacer(minLength: 16)
+                }
             }
         }
         .frame(maxWidth: .infinity)
@@ -148,9 +170,22 @@ struct WrappedVideoScreen: View {
         .hidesFloatingTabBar()
         // Build the player as soon as a real video file URL exists, and rebuild if
         // the persisted path/live URL changes.
-        .onAppear { syncPlayer() }
+        .onAppear {
+            syncPlayer()
+        }
         .onChange(of: videoURL) { _, _ in syncPlayer() }
         .onChange(of: isWrapReady) { _, _ in syncPlayer() }
+        .task(id: videoURL?.path) {
+            guard let videoURL,
+                  let size = await VideoOrientationHelper.presentationSize(for: videoURL),
+                  size.height > 0 else {
+                return
+            }
+            mediaAspectRatio = min(max(size.width / size.height, 0.5), 2.0)
+        }
+        .task(id: session?.wrappedVideoPath) {
+            await migrateLegacySessionMasterIfNeeded()
+        }
         .onDisappear {
             player?.pause()
             player = nil
@@ -164,6 +199,17 @@ struct WrappedVideoScreen: View {
         .sheet(item: $sharePayload) { payload in
             VideoShareSheet(payload: payload)
         }
+        .fullScreenCover(isPresented: $isShowingShareComposer, onDismiss: resumeAfterSharing) {
+            if let sourceURL = shareableVideoURL {
+                WrapShareComposer(
+                    sourceURL: sourceURL,
+                    metadata: shareMetadata,
+                    sourceContainsMetadata: sourceContainsMetadata
+                )
+            }
+        }
+        .statusBarHidden(false)
+        .preferredColorScheme(.dark)
     }
 
     // MARK: - Player
@@ -203,13 +249,12 @@ struct WrappedVideoScreen: View {
 
             shareButton
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, 16)
     }
 
     private var shareButton: some View {
         Button {
-            guard let videoURL = shareableVideoURL else { return }
-            shareVideo(videoURL)
+            openShareFlow()
         } label: {
             shareIcon
         }
@@ -218,15 +263,24 @@ struct WrappedVideoScreen: View {
     }
 
     private var shareIcon: some View {
-        Image(systemName: "square.and.arrow.up")
-            .font(.system(size: 20, weight: .semibold))
+        Group {
+            if isMigratingLegacyMaster {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(.white)
+            } else {
+                Image(systemName: "square.and.arrow.up")
+                    .font(.system(size: 20, weight: .semibold))
+            }
+        }
             .foregroundColor(.white)
             .frame(width: 44, height: 44)
             .contentShape(Rectangle())
-            .opacity(shareableVideoURL == nil ? 0.45 : 1)
-            .accessibilityLabel("Share video")
+            .opacity(shareableVideoURL == nil && !isMigratingLegacyMaster ? 0.45 : 1)
+            .accessibilityLabel(isMigratingLegacyMaster ? "Updating wrap" : "Share video")
             .accessibilityHint(
-                shareableVideoURL != nil ? "Opens sharing options for this wrap video"
+                isMigratingLegacyMaster ? "Preparing this older wrap for sharing"
+                    : shareableVideoURL != nil ? "Opens sharing options for this wrap video"
                     : isFinishingExport ? "Video is still finishing"
                     : "Video unavailable"
             )
@@ -237,11 +291,28 @@ struct WrappedVideoScreen: View {
         sharePayload = VideoSharePayload(url: url, title: displayTitle)
     }
 
+    private func openShareFlow() {
+        guard let videoURL = shareableVideoURL else { return }
+        switch kind {
+        case .session:
+            player?.pause()
+            isPlaying = false
+            isShowingShareComposer = true
+        case .weekly, .monthly:
+            shareVideo(videoURL)
+        }
+    }
+
+    private func resumeAfterSharing() {
+        guard isWrapReady else { return }
+        player?.play()
+        isPlaying = true
+    }
+
     private var mediaCard: some View {
-        // 9:16 portrait — matches the iPhone camera capture so the wrap video
-        // fills the frame without letterbox bars.
+        // The clean master keeps the orientation used while recording.
         Color.clear
-            .aspectRatio(9.0 / 16.0, contentMode: .fit)
+            .aspectRatio(displayedMediaAspectRatio, contentMode: .fit)
             .overlay {
                 Group {
                     if let player {
@@ -263,7 +334,7 @@ struct WrappedVideoScreen: View {
                 }
             }
             .overlay {
-                // While the titled wrap is still rendering, keep a spinner over the poster
+                // While the clean master is still rendering, keep a spinner over the poster
                 // frame instead of playing the not-yet-final video. When no export is
                 // running and the file is gone, say so — an endless spinner here used to
                 // mask permanently lost videos.
@@ -299,40 +370,78 @@ struct WrappedVideoScreen: View {
                     }
                 }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 32))
+            .overlay {
+                if case .session = kind, isWrapReady, !sourceContainsMetadata {
+                    WrapMetadataOverlay(template: .styled, metadata: shareMetadata)
+                        .allowsHitTesting(false)
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 34, style: .continuous))
             .background(
-                RoundedRectangle(cornerRadius: 32)
+                RoundedRectangle(cornerRadius: 34, style: .continuous)
                     .fill(Color.black)
-                    .offset(x: 0, y: 0)
             )
-            .overlay(
-                LinearGradient(
-                    colors: [.black.opacity(0.4), .clear, .clear],
-                    startPoint: .top,
-                    endPoint: .center
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 32))
+            .overlay {
+                RoundedRectangle(cornerRadius: 34, style: .continuous)
+                    .stroke(Color.black, lineWidth: 2)
+            }
+            // Figma node 3:30 uses a 362 x 647 portrait card on its 402 pt canvas.
+            // Landscape keeps the source aspect ratio until its dedicated design pass.
+            .frame(
+                maxWidth: mediaAspectRatio > 1 ? 680 : Self.portraitCardSize.width,
+                maxHeight: mediaAspectRatio > 1 ? .infinity : Self.portraitCardSize.height
             )
-            .frame(maxWidth: 340)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Session wrap video")
             .accessibilityValue("\(displayTitle), \(durationText), \(dateText)")
             .accessibilityHint(isPlaying ? "Video is playing" : "Video is paused")
     }
 
-    private var playPauseButton: some View {
-        Button(action: togglePlayback) {
-            Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                .font(.system(size: 24, weight: .black))
-                .foregroundColor(.white)
-                .frame(width: 64, height: 64)
-                .background(Circle().fill(Color.black))
+    @MainActor
+    private func migrateLegacySessionMasterIfNeeded() async {
+        guard case .session = kind,
+              let session,
+              let legacyMasterURL = videoURL,
+              WrapStorage.sessionMasterContainsMetadata(legacyMasterURL),
+              !isMigratingLegacyMaster else {
+            return
         }
-        .disabled(!isWrapReady)
-        .opacity(isWrapReady ? 1 : 0.5)
-        .accessibilityLabel(isPlaying ? "Pause video" : "Resume video")
-        .accessibilityInputLabels(isPlaying ? ["pause"] : ["resume", "play", "play video"])
+
+        isMigratingLegacyMaster = true
+        defer { isMigratingLegacyMaster = false }
+
+        let rawSourceURL = WrapStorage.resolveVideoURL(session.rawClipPath)
+        guard let cleanURL = await SessionWrapMigrationService.makeCleanMasterIfPossible(
+            legacyMasterURL: legacyMasterURL,
+            rawSourceURL: rawSourceURL,
+            sessionDuration: session.actualDuration
+        ) else {
+            RecordingDiagnostics.log(
+                "WrappedVideo legacy master retained session=\(session.id) "
+                    + "master=\(legacyMasterURL.lastPathComponent)"
+            )
+            return
+        }
+
+        let previousPath = session.wrappedVideoPath
+        session.wrappedVideoPath = cleanURL.lastPathComponent
+        do {
+            try context.save()
+            RecordingDiagnostics.log(
+                "WrappedVideo legacy master migrated session=\(session.id) "
+                    + "from=\(legacyMasterURL.lastPathComponent) "
+                    + "to=\(cleanURL.lastPathComponent)"
+            )
+        } catch {
+            session.wrappedVideoPath = previousPath
+            try? FileManager.default.removeItem(at: cleanURL)
+            RecordingDiagnostics.log(
+                "WrappedVideo legacy migration persist failed session=\(session.id) "
+                    + "error=\(error.localizedDescription)"
+            )
+        }
     }
+
 }
 
 extension WrappedVideoScreen {
@@ -344,15 +453,6 @@ extension WrappedVideoScreen {
         case monthly(periodKey: String, periodEnd: Date, title: String, periodLabel: String, duration: TimeInterval)
     }
 
-    private func togglePlayback() {
-        guard let player else { return }
-        if isPlaying {
-            player.pause()
-        } else {
-            player.play()
-        }
-        isPlaying.toggle()
-    }
 }
 
 // MARK: - "Not ready yet" warning (EndSession-style bottom sheet)
@@ -428,10 +528,12 @@ struct ImageSharePayload: Identifiable {
     let id = UUID()
     let image: UIImage
     let title: String
+    var isTransparentSticker = false
 }
 
 struct VideoShareSheet: UIViewControllerRepresentable {
     let payload: VideoSharePayload
+    var onComplete: (Error?) -> Void = { _ in }
 
     func makeUIViewController(context: Context) -> UIActivityViewController {
         let item = VideoShareItemSource(payload: payload)
@@ -440,6 +542,11 @@ struct VideoShareSheet: UIViewControllerRepresentable {
             applicationActivities: [InstagramStoryActivity()]
         )
         controller.excludedActivityTypes = [.addToReadingList, .assignToContact, .markupAsPDF, .print]
+        controller.completionWithItemsHandler = { _, _, _, error in
+            DispatchQueue.main.async {
+                onComplete(error)
+            }
+        }
         return controller
     }
 
@@ -448,6 +555,7 @@ struct VideoShareSheet: UIViewControllerRepresentable {
 
 struct ImageShareSheet: UIViewControllerRepresentable {
     let payload: ImageSharePayload
+    var onComplete: (Error?) -> Void = { _ in }
 
     func makeUIViewController(context: Context) -> UIActivityViewController {
         let item = ImageShareItemSource(payload: payload)
@@ -456,6 +564,11 @@ struct ImageShareSheet: UIViewControllerRepresentable {
             applicationActivities: [InstagramStoryActivity()]
         )
         controller.excludedActivityTypes = [.addToReadingList, .assignToContact, .markupAsPDF, .print]
+        controller.completionWithItemsHandler = { _, _, _, error in
+            DispatchQueue.main.async {
+                onComplete(error)
+            }
+        }
         return controller
     }
 
@@ -530,7 +643,12 @@ private final class ImageShareItemSource: NSObject, UIActivityItemSource {
 
 @MainActor
 private final class InstagramStoryActivity: UIActivity {
-    private var item: Any?
+    private enum StoryItem {
+        case image(UIImage, isSticker: Bool)
+        case video(URL)
+    }
+
+    private var item: StoryItem?
 
     override class var activityCategory: UIActivity.Category {
         .share
@@ -549,7 +667,10 @@ private final class InstagramStoryActivity: UIActivity {
     }
 
     override func canPerform(withActivityItems activityItems: [Any]) -> Bool {
-        guard InstagramStorySharer.canOpenStories else { return false }
+        guard InstagramStorySharer.isConfigured,
+              InstagramStorySharer.canOpenStories else {
+            return false
+        }
         return activityItems.contains { shareableItem(from: $0) != nil }
     }
 
@@ -559,32 +680,42 @@ private final class InstagramStoryActivity: UIActivity {
 
     override func perform() {
         let didShare: Bool
-        if let image = item as? UIImage {
-            didShare = InstagramStorySharer.shareImage(image)
-        } else if let url = item as? URL {
+        switch item {
+        case .image(let image, let isSticker):
+            didShare = isSticker
+                ? InstagramStorySharer.shareStickerImage(image)
+                : InstagramStorySharer.shareImage(image)
+        case .video(let url):
             didShare = InstagramStorySharer.shareVideo(url: url)
-        } else {
+        case nil:
             didShare = false
         }
 
         activityDidFinish(didShare)
     }
 
-    private func shareableItem(from item: Any) -> Any? {
+    private func shareableItem(from item: Any) -> StoryItem? {
         if let image = item as? UIImage {
-            return image.pngData() == nil ? nil : image
+            return image.pngData() == nil ? nil : .image(image, isSticker: false)
         }
 
         if let url = item as? URL {
-            return FileManager.default.fileExists(atPath: url.path) ? url : nil
+            return FileManager.default.fileExists(atPath: url.path) ? .video(url) : nil
         }
 
         if let source = item as? VideoShareItemSource {
-            return FileManager.default.fileExists(atPath: source.payload.url.path) ? source.payload.url : nil
+            return FileManager.default.fileExists(atPath: source.payload.url.path)
+                ? .video(source.payload.url)
+                : nil
         }
 
         if let source = item as? ImageShareItemSource {
-            return source.payload.image.pngData() == nil ? nil : source.payload.image
+            return source.payload.image.pngData() == nil
+                ? nil
+                : .image(
+                    source.payload.image,
+                    isSticker: source.payload.isTransparentSticker
+                )
         }
 
         return nil
@@ -593,6 +724,23 @@ private final class InstagramStoryActivity: UIActivity {
 
 @MainActor
 enum InstagramStorySharer {
+    enum Availability: Equatable {
+        case ready
+        case missingAppID
+        case instagramUnavailable
+    }
+
+    private static let appIDKey = "FacebookAppID"
+
+    static var isConfigured: Bool {
+        facebookAppID != nil
+    }
+
+    static var availability: Availability {
+        guard isConfigured else { return .missingAppID }
+        return canOpenStories ? .ready : .instagramUnavailable
+    }
+
     static var canOpenStories: Bool {
         guard let storiesURL = URL(string: "instagram-stories://share") else { return false }
         return UIApplication.shared.canOpenURL(storiesURL)
@@ -622,11 +770,29 @@ enum InstagramStorySharer {
         ])
     }
 
+    static func shareStickerImage(_ image: UIImage) -> Bool {
+        guard let imageData = image.pngData() else {
+            return false
+        }
+
+        return openStories(with: [
+            "com.instagram.sharedSticker.stickerImage": imageData,
+            "com.instagram.sharedSticker.backgroundTopColor": "#0060BE",
+            "com.instagram.sharedSticker.backgroundBottomColor": "#0060BE"
+        ])
+    }
+
     private static func openStories(with item: [String: Any]) -> Bool {
-        guard let storiesURL = URL(string: "instagram-stories://share"),
+        guard let facebookAppID,
+              var components = URLComponents(string: "instagram-stories://share"),
               canOpenStories else {
             return false
         }
+
+        components.queryItems = [
+            URLQueryItem(name: "source_application", value: facebookAppID)
+        ]
+        guard let storiesURL = components.url else { return false }
 
         UIPasteboard.general.setItems(
             [item],
@@ -634,6 +800,18 @@ enum InstagramStorySharer {
         )
         UIApplication.shared.open(storiesURL)
         return true
+    }
+
+    private static var facebookAppID: String? {
+        guard let rawValue = Bundle.main.object(forInfoDictionaryKey: appIDKey) as? String else {
+            return nil
+        }
+        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty,
+              value.allSatisfy(\.isNumber) else {
+            return nil
+        }
+        return value
     }
 }
 

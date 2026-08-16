@@ -21,7 +21,8 @@ final class Session: Identifiable {
     
     // Linked Media
     var videoWrapId: UUID?         // Links to the final Timelapse once generated
-    // Filename of the titled wrap in Wraps/finals. Legacy rows hold absolute paths
+    // Filename of the clean master in Wraps/finals. Share templates are temporary derivatives.
+    // Legacy rows hold absolute paths
     // (stale after any app update) — always read through WrapStorage.resolveVideoURL.
     var wrappedVideoPath: String?
     var photoAssetId: String?      // Photos-library local id for the saved wrap (for deletion)

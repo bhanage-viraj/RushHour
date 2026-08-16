@@ -41,7 +41,7 @@ final class SessionRecordingViewModel: ObservableObject {
     private var completedTitleExportTitle: String?
     private var completedTitleExportSavedToPhotos = false
     private var titleExportRetryTask: Task<Void, Never>?
-    // Kept until the user titles the session, so the wrap can be re-rendered with the title.
+    // Kept for final-export recovery and recap generation. Share styling never reads raw.
     private var retainedRawURL: URL?
     private var lastExportFrameCount: Int = 0
     private static let homePreviewIdleNanoseconds: UInt64 = 45 * 1_000_000_000
@@ -472,38 +472,24 @@ final class SessionRecordingViewModel: ObservableObject {
         ]
     }
 
-    private func makeOverlay(durationSeconds: TimeInterval, title: String = "Untitled session") -> ExportEngine.WrappedVideoOverlay {
-        // Big number = the actual focus length of the session (not the short timelapse).
-        let durationText = TimeFormatter.shortDuration(max(durationSeconds, 0))
-
-        let dateFormatter = DateFormatter()
-        dateFormatter.locale = .current
-        dateFormatter.dateFormat = "d MMM yyyy"
-        let date = dateFormatter.string(from: Date())
-
-        return ExportEngine.WrappedVideoOverlay(
-            header: title.isEmpty ? "Untitled session" : title,
-            duration: durationText,
-            subtitle: date
-        )
-    }
-
+    /// Ensures the clean, durable master exists. The title is retained in this legacy API
+    /// signature for recovery compatibility; text is applied only by the share composer.
     func prepareTitledExport(_ title: String, durationSeconds: TimeInterval = 0) {
         reexportWithTitle(title, durationSeconds: durationSeconds, saveToPhotos: false)
     }
 
-    /// Re-renders the session wrap with the user's title and optionally saves it to Photos.
+    /// Ensures the clean session master exists. Explicit gallery saves happen after the user
+    /// chooses a share template, so this defaults to app storage only.
     func reexportWithTitle(
         _ title: String,
         durationSeconds: TimeInterval = 0,
-        saveToPhotos: Bool = true,
+        saveToPhotos: Bool = false,
         completion: ((URL?) -> Void)? = nil
     ) {
         let exportTitle = normalizedTitle(title)
         log("reexportWithTitle title=\(exportTitle) duration=\(durationSeconds) saveToPhotos=\(saveToPhotos) isExporting=\(isExporting) retainedRaw=\(retainedRawURL?.lastPathComponent ?? "nil") frameCount=\(lastExportFrameCount)")
 
         if let finalVideoURL,
-           completedTitleExportTitle == exportTitle,
            FileManager.default.fileExists(atPath: finalVideoURL.path) {
             finishCachedTitleExport(
                 finalVideoURL,
@@ -514,20 +500,20 @@ final class SessionRecordingViewModel: ObservableObject {
         }
 
         guard !isExporting else {
-            if activeTitleExportTitle == exportTitle {
-                if let completion {
-                    activeTitleExportCompletions.append(completion)
-                }
-                if saveToPhotos {
-                    activeTitleExportShouldSaveToPhotos = true
-                }
-            } else {
+            if pendingTitleExport != nil {
                 queuePendingTitleExport(
                     title: exportTitle,
                     durationSeconds: durationSeconds,
                     saveToPhotos: saveToPhotos,
                     completion: completion
                 )
+            } else {
+                if let completion {
+                    activeTitleExportCompletions.append(completion)
+                }
+                if saveToPhotos {
+                    activeTitleExportShouldSaveToPhotos = true
+                }
             }
             return
         }
@@ -573,7 +559,7 @@ final class SessionRecordingViewModel: ObservableObject {
         completion: ((URL?) -> Void)?
     ) {
         let newCompletions = completion.map { [$0] } ?? []
-        if let existingPending = pendingTitleExport, existingPending.title == title {
+        if let existingPending = pendingTitleExport {
             pendingTitleExport = PendingTitleExport(
                 title: title,
                 durationSeconds: durationSeconds,
@@ -639,13 +625,10 @@ final class SessionRecordingViewModel: ObservableObject {
         lastError = nil
         statusMessage = "Generating your Wrap…"
         ScreenWakeLock.setActive(true)
-        // Prefer the session's actual duration; fall back to the recorded wall-clock.
-        let secs = durationSeconds > 0 ? durationSeconds : recordedWallClockSeconds
-        log("titleExport start title=\(title) raw=\(raw.lastPathComponent) frames=\(lastExportFrameCount) duration=\(secs)")
+        log("finalExport start raw=\(raw.lastPathComponent) frames=\(lastExportFrameCount)")
         exportEngine.generateWrappedVideo(
             rawVideoURL: raw,
-            capturedFrameCount: lastExportFrameCount,
-            overlay: makeOverlay(durationSeconds: secs, title: title)
+            capturedFrameCount: lastExportFrameCount
         ) { [weak self] finalURL in
             Task { @MainActor in
                 guard let self else { return }
@@ -662,9 +645,8 @@ final class SessionRecordingViewModel: ObservableObject {
                     self.statusMessage = nil
                     self.lastError = nil
                     let exists = FileManager.default.fileExists(atPath: finalURL.path)
-                    self.log("titleExport success final=\(finalURL.lastPathComponent) exists=\(exists)")
-                    // Every re-title renders a fresh file in the finals dir — drop the
-                    // one it replaces so title edits don't pile up orphaned videos.
+                    self.log("finalExport success final=\(finalURL.lastPathComponent) exists=\(exists)")
+                    // A recovery retry can replace an earlier master; remove the old file.
                     if let old = self.finalVideoURL, old != finalURL {
                         try? FileManager.default.removeItem(at: old)
                     }
@@ -684,7 +666,7 @@ final class SessionRecordingViewModel: ObservableObject {
                     self.lastError = "Could not stitch session video."
                     self.statusMessage = "Generating your Wrap…"
                     self.isExporting = true
-                    self.log("titleExport failed final=nil; retrying title=\(finishedTitle)")
+                    self.log("finalExport failed final=nil; retrying")
                     self.scheduleTitleExportRetry(
                         title: finishedTitle,
                         durationSeconds: durationSeconds,
@@ -696,8 +678,7 @@ final class SessionRecordingViewModel: ObservableObject {
                 let pending = self.pendingTitleExport
                 self.pendingTitleExport = nil
                 if let pending {
-                    if let finalVideoURL = self.finalVideoURL,
-                       self.completedTitleExportTitle == pending.title {
+                    if let finalVideoURL = self.finalVideoURL {
                         self.finishCachedTitleExport(
                             finalVideoURL,
                             saveToPhotos: pending.saveToPhotos,

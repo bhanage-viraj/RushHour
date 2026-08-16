@@ -7,6 +7,21 @@ import AVFoundation
 import UIKit
 
 enum VideoOrientationHelper {
+    static func presentationSize(for url: URL) async -> CGSize? {
+        let asset = AVURLAsset(url: url)
+        guard let track = try? await asset.loadTracks(withMediaType: .video).first else {
+            return nil
+        }
+        return try? await presentationSize(for: track)
+    }
+
+    static func presentationSize(for track: AVAssetTrack) async throws -> CGSize {
+        let naturalSize = try await track.load(.naturalSize)
+        let preferredTransform = try await track.load(.preferredTransform)
+        let transformedRect = CGRect(origin: .zero, size: naturalSize).applying(preferredTransform)
+        return CGSize(width: abs(transformedRect.width), height: abs(transformedRect.height))
+    }
+
     static func currentInterfaceOrientation() async -> UIInterfaceOrientation {
         // Always access UIApplication/UIScene on the main actor.
         return await MainActor.run { () -> UIInterfaceOrientation in
@@ -14,17 +29,15 @@ enum VideoOrientationHelper {
         }
     }
 
-    static func currentInterfaceOrientationSync() -> UIInterfaceOrientation {
+    static func currentRecordingOrientationSync() -> UIInterfaceOrientation {
         if Thread.isMainThread {
-            return interfaceOrientationFromApplication()
+            return physicalRecordingOrientation()
+                ?? recordingOrientation(from: interfaceOrientationFromApplication())
         }
         return DispatchQueue.main.sync {
-            interfaceOrientationFromApplication()
+            physicalRecordingOrientation()
+                ?? recordingOrientation(from: interfaceOrientationFromApplication())
         }
-    }
-
-    static func currentRecordingOrientationSync() -> UIInterfaceOrientation {
-        recordingOrientation(from: currentInterfaceOrientationSync())
     }
 
     private static func interfaceOrientationFromApplication() -> UIInterfaceOrientation {
@@ -36,6 +49,21 @@ enum VideoOrientationHelper {
             return scene.effectiveGeometry.interfaceOrientation
         }
         return scene.interfaceOrientation
+    }
+
+    private static func physicalRecordingOrientation() -> UIInterfaceOrientation? {
+        switch UIDevice.current.orientation {
+        case .portrait:
+            return .portrait
+        case .portraitUpsideDown:
+            return isPhoneInterfaceIdiom() ? .portrait : .portraitUpsideDown
+        case .landscapeLeft:
+            return .landscapeRight
+        case .landscapeRight:
+            return .landscapeLeft
+        default:
+            return nil
+        }
     }
 
     static func recordingOrientation(from orientation: UIInterfaceOrientation) -> UIInterfaceOrientation {
@@ -71,8 +99,9 @@ enum VideoOrientationHelper {
         }
     }
 
-    /// Matches preview + recorded frames to how the user holds the phone.
-    static func applyToCaptureConnection(_ connection: AVCaptureConnection) async {
+    /// Keeps the camera preview aligned with the app interface. On iPhone the interface is
+    /// portrait-only, while the recording writer separately follows physical device orientation.
+    static func applyToPreviewConnection(_ connection: AVCaptureConnection) async {
         let rawOrientation = await currentInterfaceOrientation()
         let orientation = recordingOrientation(from: rawOrientation)
         // Use `videoOrientation` instead of rotation angles.

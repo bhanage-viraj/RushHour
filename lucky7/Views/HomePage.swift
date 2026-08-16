@@ -96,17 +96,28 @@ struct HomePage: View {
                 let corner: CGFloat = isCircle ? circleSize / 2 : 30
 
                 ZStack(alignment: .top) {
+                    Color.black
+
                     CameraPreview(session: sessionRecording.captureSession)
                         .frame(width: camW, height: camH)
 
                     if isReadyToRecord && !sessionActive && !isCircle {
-                        Image("RainbowEffect")
-                            .resizable()
-                            .scaledToFill()
-                            .frame(width: camW, height: 190 * homeScale)
+                        GeometryReader { _ in
+                            Image("HomeReadyGlow")
+                                .resizable()
+                                .frame(
+                                    width: HomeDesign.readyGlowSize.width * homeScale,
+                                    height: HomeDesign.readyGlowSize.height * homeScale
+                                )
+                                .position(
+                                    x: HomeDesign.readyGlowCenter.x * homeScale,
+                                    y: HomeDesign.readyGlowCenter.y * homeScale
+                                )
+                        }
+                            .frame(width: camW, height: camH)
                             .clipped()
-                            .opacity(0.9)
                             .allowsHitTesting(false)
+                            .accessibilityHidden(true)
                     }
                 }
                 .frame(width: camW, height: camH)
@@ -215,14 +226,19 @@ struct HomePage: View {
 
 private enum HomeDesign {
     static let size = CGSize(width: 402, height: 874)
-    static let camera = CGRect(x: 10, y: 117, width: 382, height: 657)
+    static let backgroundPattern = CGSize(width: 963.912, height: 963.912)
+    static let backgroundPatternCenter = CGPoint(x: 203, y: 440)
+    static let camera = CGRect(x: 10, y: 107, width: 382, height: 657)
     static let settings = CGRect(x: 16, y: 57, width: 40, height: 40)
-    static let logo = CGRect(x: 126.5, y: 61, width: 149, height: 45)
-    static let timer = CGRect(x: 26, y: 133, width: 350, height: 147)
-    static let setupTip = CGRect(x: 140, y: 308, width: 122, height: 25)
-    static let startTip = CGRect(x: 89.5, y: 513, width: 203, height: 29)
+    static let logo = CGRect(x: 130.103, y: 55, width: 148.536, height: 44.134)
+    static let timer = CGRect(x: 26.96, y: 123, width: 348.079, height: 146)
+    static let setupTip = CGRect(x: 129, y: 281, width: 144, height: 29)
+    static let startTip = CGRect(x: 99.5, y: 620, width: 203, height: 29)
     static let recordCenter = CGPoint(x: 201, y: 703)
     static let flip = CGRect(x: 326, y: 683, width: 40, height: 40)
+    static let readyGlowSize = CGSize(width: 759.182, height: 479.275)
+    // The Figma glow is positioned inside the camera card, whose origin is x: 10.
+    static let readyGlowCenter = CGPoint(x: 213.932, y: 98)
 
     static func scale(in size: CGSize) -> CGFloat {
         min(size.width / Self.size.width, size.height / Self.size.height)
@@ -255,41 +271,36 @@ private enum HomeDesign {
 struct BackgroundPatternView: View {
     let isTimerSet: Bool
 
-    @State private var pulse = false
-
-    private let base = Color(red: 0 / 255, green: 96 / 255, blue: 190 / 255)   // #0060BE
-
     var body: some View {
-        // Color is the flexible base; the pattern is an OVERLAY so a scaledToFill image
-        // can't drive the view's width and blow up everything sized off it.
-        base
-            .overlay {
-                if isTimerSet {
-                    Image("group45")
-                        .resizable()
-                        .scaledToFill()
-                        .scaleEffect(pulse ? 1.04 : 0.98)
-                        .opacity(pulse ? 1 : 0.72)
-                        .animation(
-                            .easeInOut(duration: 0.8)
-                            .repeatForever(autoreverses: true),
-                            value: pulse
-                        )
-                        .allowsHitTesting(false)
-                }
+        GeometryReader { geo in
+            let scale = HomeDesign.scale(in: geo.size)
+            let origin = HomeDesign.origin(in: geo.size, scale: scale)
+            let patternCenter = HomeDesign.point(
+                HomeDesign.backgroundPatternCenter,
+                origin: origin,
+                scale: scale
+            )
+
+            ZStack {
+                Color(
+                    red: isTimerSet ? 0 / 255 : 24 / 255,
+                    green: isTimerSet ? 96 / 255 : 128 / 255,
+                    blue: isTimerSet ? 190 / 255 : 229 / 255
+                )
+
+                Image("group45")
+                    .resizable()
+                    .frame(
+                        width: HomeDesign.backgroundPattern.width * scale,
+                        height: HomeDesign.backgroundPattern.height * scale
+                    )
+                    .position(patternCenter)
+                    .allowsHitTesting(false)
             }
             .clipped()
             .ignoresSafeArea()
-            .onAppear { if isTimerSet { pulse = true } }
-            .onDisappear { pulse = false }
-            .onChange(of: isTimerSet) { _, set in
-                if set {
-                    pulse = false
-                    DispatchQueue.main.async { pulse = true }
-                } else {
-                    pulse = false
-                }
-            }
+        }
+        .ignoresSafeArea()
     }
 }
 
@@ -373,7 +384,7 @@ private struct HomeControls: View {
                     onSettings()
                 }) {
                     Image(systemName: "gearshape.fill")
-                        .font(.system(size: 28 * scale, weight: .bold))
+                        .font(.system(size: 18.732 * scale, weight: .heavy))
                         .foregroundStyle(.white)
                         .frame(width: HomeDesign.settings.width * scale, height: HomeDesign.settings.height * scale)
                 }
@@ -399,6 +410,7 @@ private struct HomeControls: View {
                         text: "Set up focus duration",
                         width: HomeDesign.setupTip.width,
                         height: HomeDesign.setupTip.height,
+                        direction: .up,
                         scale: scale
                     )
                     .position(HomeDesign.center(of: HomeDesign.setupTip, origin: origin, scale: scale))
@@ -409,6 +421,7 @@ private struct HomeControls: View {
                         text: "Start session when you're ready",
                         width: HomeDesign.startTip.width,
                         height: HomeDesign.startTip.height,
+                        direction: .down,
                         scale: scale
                     )
                     .position(HomeDesign.center(of: HomeDesign.startTip, origin: origin, scale: scale))
@@ -444,14 +457,17 @@ private struct RecordButton: View {
         Button(action: action) {
             ZStack {
                 Circle()
-                    .stroke(Color.white, lineWidth: 4 * scale)
-                    .frame(width: 74 * scale, height: 74 * scale)
+                    .fill(Color.white.opacity(0.75))
+                    .frame(width: 80 * scale, height: 80 * scale)
                 Circle()
-                    .fill(isReady ? Color.red : Color(white: 0.55))
-                    .frame(width: 60 * scale, height: 60 * scale)
+                    .fill(isReady ? Color("ButtonRed") : Color(white: 0.6))
+                    .frame(width: 68 * scale, height: 68 * scale)
+                Image(systemName: "play.fill")
+                    .font(.system(size: 30 * scale, weight: .bold))
+                    .foregroundStyle(isReady ? Color.white : Color.white.opacity(0.42))
+                    .offset(x: 1 * scale)
             }
             .animation(.easeInOut(duration: 0.2), value: isReady)
-            .shadow(color: .black.opacity(0.2), radius: 6 * scale, y: 3 * scale)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(isReady ? "Start focus session" : "Start focus session, unavailable")
@@ -467,12 +483,11 @@ private struct FlipCameraButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: "camera.rotate")
-                .font(.system(size: 18 * scale, weight: .semibold))
-                .foregroundStyle(Color.black.opacity(0.8))
+            Image(systemName: "arrow.trianglehead.2.clockwise.rotate.90")
+                .font(.system(size: 16 * scale, weight: .heavy))
+                .foregroundStyle(Color(red: 52 / 255, green: 52 / 255, blue: 52 / 255))
                 .frame(width: 40 * scale, height: 40 * scale)
                 .background(Color.white.opacity(0.75), in: Circle())
-                .shadow(color: .black.opacity(0.18), radius: 4 * scale, y: 2 * scale)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Switch camera")
@@ -484,19 +499,39 @@ private struct FlipCameraButton: View {
 // MARK: - Tooltip
 
 private struct HomePillTooltip: View {
+    enum Direction {
+        case up
+        case down
+    }
+
     let text: String
     let width: CGFloat
     let height: CGFloat
+    let direction: Direction
     let scale: CGFloat
 
     var body: some View {
-        Text(text)
-            .font(.system(size: 10 * scale, weight: .medium))
-            .foregroundStyle(.white)
-            .lineLimit(1)
-            .minimumScaleFactor(0.8)
-            .frame(width: width * scale, height: height * scale)
-            .background(Color.black.opacity(0.8), in: Capsule())
+        ZStack {
+            Capsule()
+                .fill(Color(red: 38 / 255, green: 38 / 255, blue: 38 / 255).opacity(0.8))
+
+            Text(text)
+                .font(.system(size: 12 * scale, weight: .regular))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+
+            Image("HomeTooltipPointer")
+                .resizable()
+                .frame(width: 10 * scale, height: 6 * scale)
+                .rotationEffect(direction == .up ? .degrees(180) : .zero)
+                .offset(
+                    y: direction == .up
+                        ? -(height / 2 + 3) * scale
+                        : (height / 2 + 3) * scale
+                )
+        }
+        .frame(width: width * scale, height: height * scale)
     }
 }
 
@@ -508,32 +543,51 @@ private struct HomeTrafficTimer: View {
     @Binding var seconds: Int
     let timerWidth: CGFloat
 
-    // Native Trafficframe ratio is 350 × 147.
-    private var timerHeight: CGFloat { timerWidth * 147.0 / 350.0 }
+    private enum Layout {
+        static let size = CGSize(width: 348.079, height: 146)
+        static let slotOrigin = CGPoint(x: 14.034, y: 18.014)
+        static let slotSize = CGSize(width: 99.358, height: 99.358)
+        static let slotSpacing: CGFloat = 10.796
+        static let numberOrigin = CGPoint(x: 2.67, y: 1.65)
+        static let numberSize = CGSize(width: 92, height: 94)
+    }
+
+    private var timerHeight: CGFloat { timerWidth * HomeDesign.timer.height / HomeDesign.timer.width }
 
     var body: some View {
-        let designScale = timerWidth / 350.0
-        let shellGroupWidth = 319.67 * designScale
-        let shellGroupHeight = 99.36 * designScale
-        let shellSpacing = 10.8 * designScale
-        let shellSlotWidth = (shellGroupWidth - shellSpacing * 2) / 3
-        let shellTop = max((timerHeight - shellGroupHeight) / 2 - 6 * designScale, 0)
+        let scale = timerWidth / Layout.size.width
+        let slotSize = CGSize(
+            width: Layout.slotSize.width * scale,
+            height: Layout.slotSize.height * scale
+        )
+        let slotGroupWidth = slotSize.width * 3 + Layout.slotSpacing * scale * 2
 
-        ZStack(alignment: .top) {
-            // Housing — explicit size, native ratio, so it never re-scales.
-            Image("Trafficframe")
+        ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: 12.934 * scale, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [Color(red: 28 / 255, green: 28 / 255, blue: 28 / 255), .black],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .frame(width: timerWidth, height: timerHeight)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+
+            Image("HomeTrafficTimer")
                 .resizable()
                 .frame(width: timerWidth, height: timerHeight)
                 .allowsHitTesting(false)
-                .accessibilityDecorative()
+                .accessibilityHidden(true)
 
-            HStack(spacing: shellSpacing) {
-                dial($hours, range: 0...23, unit: .hour, shellSlotWidth: shellSlotWidth, shellHeight: shellGroupHeight)
-                dial($minutes, range: 0...59, unit: .minute, shellSlotWidth: shellSlotWidth, shellHeight: shellGroupHeight)
-                dial($seconds, range: 0...59, unit: .second, shellSlotWidth: shellSlotWidth, shellHeight: shellGroupHeight)
+            HStack(spacing: Layout.slotSpacing * scale) {
+                dial($hours, range: 0...23, unit: .hour, scale: scale)
+                dial($minutes, range: 0...59, unit: .minute, scale: scale)
+                dial($seconds, range: 0...59, unit: .second, scale: scale)
             }
-            .frame(width: shellGroupWidth, height: shellGroupHeight)
-            .padding(.top, shellTop)
+            .frame(width: slotGroupWidth, height: slotSize.height, alignment: .topLeading)
+            .offset(x: Layout.slotOrigin.x * scale, y: Layout.slotOrigin.y * scale)
         }
         .frame(width: timerWidth, height: timerHeight)
     }
@@ -542,57 +596,42 @@ private struct HomeTrafficTimer: View {
         _ value: Binding<Int>,
         range: ClosedRange<Int>,
         unit: AccessibilitySupport.TimeUnit,
-        shellSlotWidth: CGFloat,
-        shellHeight: CGFloat
+        scale: CGFloat
     ) -> some View {
-        let lensDiameter = shellSlotWidth * 0.68
-        let lensArtDiameter = shellSlotWidth * (87.27 / 99.36)
-        let shellShadowHeight = shellSlotWidth * (26.69 / 99.36)
-        let shellShadowWidth = shellSlotWidth * (99.41 / 99.36)
-        let lensTop = (shellSlotWidth - lensArtDiameter) / 2
-        let wheelTop = (shellSlotWidth - lensDiameter) / 2
-        let frontLensTop = lensTop
+        let slotSize = CGSize(
+            width: Layout.slotSize.width * scale,
+            height: Layout.slotSize.height * scale
+        )
+        let numberSize = CGSize(
+            width: Layout.numberSize.width * scale,
+            height: Layout.numberSize.height * scale
+        )
+        let showsFigmaSample = value.wrappedValue == 0
 
-        return ZStack(alignment: .top) {
-            Image("TrafficShellShadow")
-                .resizable()
-                .frame(width: shellShadowWidth, height: shellShadowHeight)
-                .offset(y: shellSlotWidth)
-                .allowsHitTesting(false)
+        return ZStack(alignment: .topLeading) {
+            if !showsFigmaSample {
+                // The Figma export contains its sample 0/1 values. Cover only those
+                // glyph areas before rendering a changed live value on top.
+                Color.black
+                    .frame(width: 46 * scale, height: 42 * scale)
+                    .position(x: 48.7 * scale, y: 48.5 * scale)
+                    .allowsHitTesting(false)
 
-            Image("TrafficShellBg")
-                .resizable()
-                .frame(width: shellSlotWidth, height: shellSlotWidth)
-                .allowsHitTesting(false)
-                .accessibilityDecorative()
+                Color.black
+                    .frame(width: 24 * scale, height: 24 * scale)
+                    .position(x: 48.7 * scale, y: 85.5 * scale)
+                    .allowsHitTesting(false)
+            }
 
-            Image("TrafficShell")
-                .resizable()
-                .frame(width: lensArtDiameter, height: lensArtDiameter)
-                .offset(y: lensTop)
-                .allowsHitTesting(false)
-
-            HomeTimeDial(selected: value, range: range, diameter: lensDiameter, unit: unit)
-                .frame(width: lensDiameter, height: lensDiameter)
-                .clipShape(Circle())
-                .offset(y: wheelTop)
-
-            Image("TrafficShell")
-                .resizable()
-                .frame(width: lensArtDiameter, height: lensArtDiameter)
-                .offset(y: frontLensTop)
-                .opacity(0.28)
-                .allowsHitTesting(false)
-
-            Image("TrafficShell")
-                .resizable()
-                .frame(width: lensArtDiameter, height: lensArtDiameter)
-                .offset(y: frontLensTop)
-                .blendMode(.screen)
-                .opacity(0.85)
-                .allowsHitTesting(false)
+            HomeTimeDial(selected: value, range: range, size: numberSize, unit: unit)
+                .frame(width: numberSize.width, height: numberSize.height)
+                .offset(
+                    x: Layout.numberOrigin.x * scale,
+                    y: Layout.numberOrigin.y * scale
+                )
+                .opacity(showsFigmaSample ? 0.02 : 1)
         }
-        .frame(width: shellSlotWidth, height: shellHeight)
+        .frame(width: slotSize.width, height: slotSize.height)
     }
 }
 
@@ -602,7 +641,7 @@ private struct HomeTrafficTimer: View {
 private struct HomeTimeDial: View {
     @Binding var selected: Int
     let range: ClosedRange<Int>
-    let diameter: CGFloat
+    let size: CGSize
     let unit: AccessibilitySupport.TimeUnit
 
     @State private var scrollID: Int?
@@ -614,33 +653,33 @@ private struct HomeTimeDial: View {
     }
 
     var body: some View {
-        let row = diameter * 0.5
-        let centerPadding = max((diameter - row) / 2, 0)
+        let row = size.height / 2
+        let centerPadding = max((size.height - row) / 2, 0)
 
         ScrollView(.vertical, showsIndicators: false) {
             LazyVStack(spacing: 0) {
                 ForEach(values, id: \.self) { number in
                     let isSelected = number == selected
                     Text("\(number)")
-                        .font(.custom("Special Gothic Expanded One", size: isSelected ? diameter * 0.42 : diameter * 0.27))
-                        .foregroundStyle(isSelected ? Color.white : Color.white.opacity(0.16))
+                        .font(.custom("Special Gothic Expanded One", size: 36 * size.width / 92))
+                        .foregroundStyle(isSelected ? Color.white : Color.white.opacity(0.4))
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
                         .fixedSize(horizontal: true, vertical: true)
-                        .scaleEffect(isSelected ? 1 : 0.85)
                         .animation(.smooth(duration: 0.15), value: selected)
-                        .frame(width: diameter, height: row)
+                        .frame(width: size.width, height: row)
                         .id(number)
                 }
             }
             .scrollTargetLayout()
             .padding(.vertical, centerPadding)
         }
-        .frame(width: diameter, height: diameter)
+        .frame(width: size.width, height: size.height)
         .scrollTargetBehavior(.viewAligned)
         .scrollPosition(id: $scrollID, anchor: .center)
         .scrollClipDisabled()
         .clipped()
+        .clipShape(RoundedRectangle(cornerRadius: 13 * size.width / 92, style: .continuous))
         .onAppear { if scrollID == nil { scrollID = clamped(selected) } }
         .onChange(of: scrollID) { _, new in
             guard let new else { return }

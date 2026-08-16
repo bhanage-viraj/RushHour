@@ -59,7 +59,6 @@ struct Loading: View {
                     if !tabBarVisibility.isHidden {
                         FloatingTabBar(selection: $selectedTab)
                             .padding(.bottom, 0)
-                            .offset(y: 10)
                             .zIndex(2)
                             .transition(.opacity)
                     }
