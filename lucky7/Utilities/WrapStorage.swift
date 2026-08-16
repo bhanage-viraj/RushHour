@@ -59,13 +59,6 @@ enum WrapStorage {
         finalsDir.appendingPathComponent("clean_\(UUID().uuidString).mp4")
     }
 
-    /// `wrapped_*` is the only historical session-master format that burned metadata into
-    /// the video. Treat every other name as clean: a path naming change must never hide the
-    /// in-app metadata overlay or the Clean template.
-    static func isCleanSessionMaster(_ url: URL) -> Bool {
-        !sessionMasterContainsMetadata(url)
-    }
-
     static func sessionMasterContainsMetadata(_ url: URL) -> Bool {
         url.lastPathComponent.hasPrefix("wrapped_")
     }

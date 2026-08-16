@@ -29,15 +29,6 @@ enum VideoOrientationHelper {
         }
     }
 
-    static func currentInterfaceOrientationSync() -> UIInterfaceOrientation {
-        if Thread.isMainThread {
-            return interfaceOrientationFromApplication()
-        }
-        return DispatchQueue.main.sync {
-            interfaceOrientationFromApplication()
-        }
-    }
-
     static func currentRecordingOrientationSync() -> UIInterfaceOrientation {
         if Thread.isMainThread {
             return physicalRecordingOrientation()

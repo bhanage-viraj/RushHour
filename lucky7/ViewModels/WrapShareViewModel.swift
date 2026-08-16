@@ -13,7 +13,6 @@ import UIKit
 final class WrapShareViewModel: ObservableObject {
     @Published var selectedTemplate: WrapTemplate = .styled
     @Published private(set) var posterImage: UIImage?
-    @Published private(set) var aspectRatio: CGFloat = 9.0 / 16.0
     @Published private(set) var isWorking = false
     @Published private(set) var workingLabel = ""
     @Published var videoSharePayload: VideoSharePayload?
@@ -37,20 +36,12 @@ final class WrapShareViewModel: ObservableObject {
         sourceURL: URL,
         metadata: WrapShareMetadata,
         sourceContainsMetadata: Bool = false,
-        initialTemplate: WrapTemplate = .styled,
         exportEngine: ExportEngine? = nil
     ) {
         self.sourceURL = sourceURL
         self.metadata = metadata
         self.sourceContainsMetadata = sourceContainsMetadata
-        self.selectedTemplate = sourceContainsMetadata && initialTemplate == .clean
-            ? .styled
-            : initialTemplate
         self.exportEngine = exportEngine ?? .shared
-    }
-
-    var canShareToInstagram: Bool {
-        InstagramStorySharer.availability == .ready
     }
 
     var canCopySelected: Bool {
@@ -64,10 +55,6 @@ final class WrapShareViewModel: ObservableObject {
     func prepare() async {
         guard !didPrepare else { return }
         didPrepare = true
-
-        if let size = await VideoOrientationHelper.presentationSize(for: sourceURL), size.height > 0 {
-            aspectRatio = min(max(size.width / size.height, 0.5), 2.0)
-        }
 
         let previewSourceURL = sourceURL
         posterImage = await withCheckedContinuation { continuation in
@@ -86,18 +73,6 @@ final class WrapShareViewModel: ObservableObject {
     }
 
     func shareSelected() {
-        perform(.systemShare)
-    }
-
-    func shareSelectedToInstagramMessages() {
-        // The system sheet is the supported attachment hand-off for Instagram DMs.
-        // It can also offer another destination when Instagram is not installed.
-        perform(.systemShare)
-    }
-
-    func shareSelectedToWhatsApp() {
-        // WhatsApp does not offer a stable public video-attachment URL scheme. Let iOS
-        // hand the selected media to the installed share extensions instead.
         perform(.systemShare)
     }
 

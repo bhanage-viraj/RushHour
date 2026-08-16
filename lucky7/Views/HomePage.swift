@@ -102,9 +102,22 @@ struct HomePage: View {
                         .frame(width: camW, height: camH)
 
                     if isReadyToRecord && !sessionActive && !isCircle {
-                        HomeReadyGlow(scale: homeScale)
+                        GeometryReader { _ in
+                            Image("HomeReadyGlow")
+                                .resizable()
+                                .frame(
+                                    width: HomeDesign.readyGlowSize.width * homeScale,
+                                    height: HomeDesign.readyGlowSize.height * homeScale
+                                )
+                                .position(
+                                    x: HomeDesign.readyGlowCenter.x * homeScale,
+                                    y: HomeDesign.readyGlowCenter.y * homeScale
+                                )
+                        }
                             .frame(width: camW, height: camH)
                             .clipped()
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
                     }
                 }
                 .frame(width: camW, height: camH)
@@ -288,83 +301,6 @@ struct BackgroundPatternView: View {
             .ignoresSafeArea()
         }
         .ignoresSafeArea()
-    }
-}
-
-private struct HomeReadyGlow: View {
-    let scale: CGFloat
-
-    var body: some View {
-        GeometryReader { _ in
-            ZStack {
-                glow(
-                    size: Layout.yellowSize,
-                    center: Layout.yellowCenter,
-                    startColor: Color(red: 1, green: 0.77, blue: 0.15),
-                    endColor: Color(red: 1, green: 0.77, blue: 0.15)
-                )
-
-                glow(
-                    size: Layout.sideSize,
-                    center: Layout.redCenter,
-                    startColor: Color(red: 0.89, green: 0.35, blue: 0.35),
-                    endColor: Color(red: 0.88, green: 0, blue: 0),
-                    rotation: .degrees(-35.07)
-                )
-
-                glow(
-                    size: Layout.sideSize,
-                    center: Layout.greenCenter,
-                    startColor: Color(red: 0.03, green: 0.74, blue: 0.31),
-                    endColor: Color(red: 0.03, green: 0.74, blue: 0.31)
-                )
-            }
-            .frame(
-                width: HomeDesign.readyGlowSize.width * scale,
-                height: HomeDesign.readyGlowSize.height * scale
-            )
-            .position(
-                x: HomeDesign.readyGlowCenter.x * scale,
-                y: HomeDesign.readyGlowCenter.y * scale
-            )
-        }
-        .allowsHitTesting(false)
-        .accessibilityDecorative()
-    }
-
-    private func glow(
-        size: CGSize,
-        center: CGPoint,
-        startColor: Color,
-        endColor: Color,
-        rotation: Angle = .zero
-    ) -> some View {
-        Rectangle()
-            .foregroundStyle(.clear)
-            .frame(width: size.width * scale, height: size.height * scale)
-            .background(
-                LinearGradient(
-                    stops: [
-                        .init(color: startColor, location: 0),
-                        .init(color: endColor.opacity(0), location: 1)
-                    ],
-                    startPoint: UnitPoint(x: 0.5, y: 0),
-                    endPoint: UnitPoint(x: 0.5, y: 0.59)
-                )
-            )
-            .cornerRadius(size.height * scale)
-            .blur(radius: 50 * scale)
-            .rotationEffect(rotation)
-            .opacity(0.8)
-            .position(x: center.x * scale, y: center.y * scale)
-    }
-
-    private enum Layout {
-        static let sideSize = CGSize(width: 220.02895, height: 293.02277)
-        static let yellowSize = CGSize(width: 299.95145, height: 278.7319)
-        static let yellowCenter = CGPoint(x: 386.059, y: 239.366)
-        static let redCenter = CGPoint(x: 293.23567, y: 241.07238)
-        static let greenCenter = CGPoint(x: 465.94673, y: 241.07238)
     }
 }
 

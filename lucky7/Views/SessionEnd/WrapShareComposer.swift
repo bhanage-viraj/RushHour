@@ -15,25 +15,17 @@ struct WrapShareComposer: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel: WrapShareViewModel
     @State private var scrollTarget: WrapTemplate? = .styled
-    private let initialTemplate: WrapTemplate
 
     init(
         sourceURL: URL,
         metadata: WrapShareMetadata,
-        sourceContainsMetadata: Bool = false,
-        initialTemplate: WrapTemplate = .styled
+        sourceContainsMetadata: Bool = false
     ) {
-        let resolvedTemplate: WrapTemplate = sourceContainsMetadata && initialTemplate == .clean
-            ? .styled
-            : initialTemplate
-        self.initialTemplate = resolvedTemplate
-        _scrollTarget = State(initialValue: resolvedTemplate)
         _viewModel = StateObject(
             wrappedValue: WrapShareViewModel(
                 sourceURL: sourceURL,
                 metadata: metadata,
-                sourceContainsMetadata: sourceContainsMetadata,
-                initialTemplate: resolvedTemplate
+                sourceContainsMetadata: sourceContainsMetadata
             )
         )
     }
@@ -86,8 +78,6 @@ struct WrapShareComposer: View {
         }
         .task {
             await viewModel.prepare()
-            scrollTarget = initialTemplate
-            viewModel.selectedTemplate = initialTemplate
         }
         .onChange(of: scrollTarget) { _, template in
             guard let template else { return }
@@ -202,7 +192,7 @@ struct WrapShareComposer: View {
                 ShareDestinationButton(
                     title: "Instagram\nMessages",
                     assetName: "InstagramShareIcon",
-                    action: viewModel.shareSelectedToInstagramMessages
+                    action: viewModel.shareSelected
                 )
 
                 Spacer(minLength: 0)
@@ -211,7 +201,7 @@ struct WrapShareComposer: View {
                 ShareDestinationButton(
                     title: "Whatsapp",
                     assetName: "WhatsAppShareIcon",
-                    action: viewModel.shareSelectedToWhatsApp
+                    action: viewModel.shareSelected
                 )
 
                 Spacer(minLength: 0)
