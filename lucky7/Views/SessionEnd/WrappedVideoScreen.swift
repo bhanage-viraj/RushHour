@@ -5,12 +5,15 @@
 
 import SwiftUI
 import SwiftData
-import AVKit
+import AVFoundation
 import UniformTypeIdentifiers
 import UIKit
 
 struct WrappedVideoScreen: View {
+    private static let figmaCanvasSize = CGSize(width: 402, height: 874)
     private static let portraitCardSize = CGSize(width: 362, height: 647)
+    private static let portraitPatternSize = CGSize(width: 786.807, height: 786.807)
+    private static let portraitPatternOrigin = CGPoint(x: -192, y: 44)
 
     let kind: Kind
     var videoFrames: [UIImage] = []
@@ -121,6 +124,10 @@ struct WrappedVideoScreen: View {
             : Self.portraitCardSize.width / Self.portraitCardSize.height
     }
 
+    private var usesPortraitWatchLayout: Bool {
+        mediaAspectRatio <= 1
+    }
+
     private var shareableVideoURL: URL? {
         isMigratingLegacyMaster ? nil : videoURL
     }
@@ -136,17 +143,21 @@ struct WrappedVideoScreen: View {
             Color.wrappedWatchBlue
                 .ignoresSafeArea()
 
-            Image("PatternBackground")
-                .resizable()
-                .scaledToFill()
-                .ignoresSafeArea()
-                .offset(y: -30)
+            if usesPortraitWatchLayout {
+                portraitWatchBackground
+            } else {
+                Image("PatternBackground")
+                    .resizable()
+                    .scaledToFill()
+                    .ignoresSafeArea()
+                    .offset(y: -30)
+            }
 
             VStack(spacing: 0) {
                 topBar
                     .frame(height: 48)
 
-                if mediaAspectRatio <= 1 {
+                if usesPortraitWatchLayout {
                     mediaCard
                         .padding(.horizontal, 20)
                         .padding(.top, 17)
@@ -236,7 +247,7 @@ struct WrappedVideoScreen: View {
         HStack {
             Button(action: { dismiss() }) {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 20, weight: .bold))
+                    .font(.system(size: 20, weight: .heavy))
                     .foregroundColor(.white)
                     .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
@@ -249,7 +260,10 @@ struct WrappedVideoScreen: View {
 
             shareButton
         }
-        .padding(.horizontal, 16)
+        // Figma positions the back hit target at x:16 and the share target at x:334
+        // on its 402 pt portrait canvas.
+        .padding(.leading, 16)
+        .padding(.trailing, 20)
     }
 
     private var shareButton: some View {
@@ -270,11 +284,11 @@ struct WrappedVideoScreen: View {
                     .tint(.white)
             } else {
                 Image(systemName: "square.and.arrow.up")
-                    .font(.system(size: 20, weight: .semibold))
+                    .font(.system(size: 24, weight: .regular))
             }
         }
             .foregroundColor(.white)
-            .frame(width: 44, height: 44)
+            .frame(width: 48, height: 48)
             .contentShape(Rectangle())
             .opacity(shareableVideoURL == nil && !isMigratingLegacyMaster ? 0.45 : 1)
             .accessibilityLabel(isMigratingLegacyMaster ? "Updating wrap" : "Share video")
@@ -310,13 +324,25 @@ struct WrappedVideoScreen: View {
     }
 
     private var mediaCard: some View {
+        Group {
+            if usesPortraitWatchLayout {
+                mediaCardContent
+                    .frame(width: Self.portraitCardSize.width, height: Self.portraitCardSize.height)
+            } else {
+                mediaCardContent
+                    .aspectRatio(displayedMediaAspectRatio, contentMode: .fit)
+                    .frame(maxWidth: 680, maxHeight: .infinity)
+            }
+        }
+    }
+
+    private var mediaCardContent: some View {
         // The clean master keeps the orientation used while recording.
         Color.clear
-            .aspectRatio(displayedMediaAspectRatio, contentMode: .fit)
             .overlay {
                 Group {
                     if let player {
-                        VideoPlayer(player: player)
+                        AspectFillVideoPlayer(player: player)
                     } else if let firstFrame = videoFrames.first {
                         Image(uiImage: firstFrame)
                             .resizable()
@@ -385,16 +411,40 @@ struct WrappedVideoScreen: View {
                 RoundedRectangle(cornerRadius: 34, style: .continuous)
                     .stroke(Color.black, lineWidth: 2)
             }
-            // Figma node 3:30 uses a 362 x 647 portrait card on its 402 pt canvas.
-            // Landscape keeps the source aspect ratio until its dedicated design pass.
-            .frame(
-                maxWidth: mediaAspectRatio > 1 ? 680 : Self.portraitCardSize.width,
-                maxHeight: mediaAspectRatio > 1 ? .infinity : Self.portraitCardSize.height
-            )
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Session wrap video")
             .accessibilityValue("\(displayTitle), \(durationText), \(dateText)")
             .accessibilityHint(isPlaying ? "Video is playing" : "Video is paused")
+    }
+
+    private var portraitWatchBackground: some View {
+        GeometryReader { proxy in
+            let scale = min(
+                proxy.size.width / Self.figmaCanvasSize.width,
+                proxy.size.height / Self.figmaCanvasSize.height
+            )
+            let canvasOrigin = CGPoint(
+                x: (proxy.size.width - Self.figmaCanvasSize.width * scale) / 2,
+                y: (proxy.size.height - Self.figmaCanvasSize.height * scale) / 2
+            )
+            let patternCenter = CGPoint(
+                x: canvasOrigin.x
+                    + (Self.portraitPatternOrigin.x + Self.portraitPatternSize.width / 2) * scale,
+                y: canvasOrigin.y
+                    + (Self.portraitPatternOrigin.y + Self.portraitPatternSize.height / 2) * scale
+            )
+
+            Image("WrappedWatchBackground")
+                .resizable()
+                .frame(
+                    width: Self.portraitPatternSize.width * scale,
+                    height: Self.portraitPatternSize.height * scale
+                )
+                .position(patternCenter)
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 
     @MainActor
@@ -442,6 +492,42 @@ struct WrappedVideoScreen: View {
         }
     }
 
+}
+
+private struct AspectFillVideoPlayer: UIViewRepresentable {
+    let player: AVPlayer
+
+    func makeUIView(context: Context) -> AspectFillPlayerView {
+        let view = AspectFillPlayerView()
+        view.player = player
+        return view
+    }
+
+    func updateUIView(_ view: AspectFillPlayerView, context: Context) {
+        view.player = player
+    }
+}
+
+private final class AspectFillPlayerView: UIView {
+    override class var layerClass: AnyClass { AVPlayerLayer.self }
+
+    var player: AVPlayer? {
+        didSet { playerLayer.player = player }
+    }
+
+    private var playerLayer: AVPlayerLayer {
+        layer as! AVPlayerLayer
+    }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        playerLayer.videoGravity = .resizeAspectFill
+        playerLayer.backgroundColor = UIColor.black.cgColor
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
 }
 
 extension WrappedVideoScreen {

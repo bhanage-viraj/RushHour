@@ -185,53 +185,30 @@ struct WrapShareComposer: View {
                     assetName: "InstagramShareIcon",
                     action: viewModel.shareSelectedToInstagramStory
                 )
-
-                Spacer(minLength: 0)
-                    .frame(maxWidth: 16)
-
-                ShareDestinationButton(
-                    title: "Instagram\nMessages",
-                    assetName: "InstagramShareIcon",
-                    action: viewModel.shareSelected
-                )
-
-                Spacer(minLength: 0)
-                    .frame(maxWidth: 16)
-
-                ShareDestinationButton(
-                    title: "Whatsapp",
-                    assetName: "WhatsAppShareIcon",
-                    action: viewModel.shareSelected
-                )
-
-                Spacer(minLength: 0)
-                    .frame(maxWidth: 16)
+                .frame(maxWidth: .infinity)
 
                 ShareDestinationButton(
                     title: "Messages",
                     assetName: "MessagesShareIcon",
                     action: viewModel.shareSelectedToMessages
                 )
+                .frame(maxWidth: .infinity)
 
-                Spacer(minLength: 0)
-            }
+                ShareUtilityButton(
+                    title: "Share",
+                    systemImage: "square.and.arrow.up",
+                    action: viewModel.shareSelected
+                )
+                .frame(maxWidth: .infinity)
 
-            HStack(spacing: 16) {
                 if viewModel.canCopySelected {
                     ShareUtilityButton(
                         title: "Copy",
                         systemImage: "document.on.document",
                         action: viewModel.copySelected
                     )
+                    .frame(maxWidth: .infinity)
                 }
-
-                ShareUtilityButton(
-                    title: "Save to\nPhoto",
-                    systemImage: "square.and.arrow.down",
-                    action: viewModel.saveSelected
-                )
-
-                Spacer()
             }
         }
         .padding(.horizontal, 20)
@@ -365,7 +342,7 @@ private struct ShareDestinationButton: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(height: 32, alignment: .top)
             }
-            .frame(width: 74)
+            .frame(width: 68)
             .contentShape(Rectangle())
         }
         .buttonStyle(ShareActionButtonStyle())
@@ -394,7 +371,7 @@ private struct ShareUtilityButton: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(height: 32, alignment: .top)
             }
-            .frame(width: 74)
+            .frame(width: 68)
             .contentShape(Rectangle())
         }
         .buttonStyle(ShareActionButtonStyle())
