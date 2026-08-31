@@ -891,40 +891,14 @@ final class ExportEngine {
             addMetadata(startY: renderSize.height * WrapOverlayLayout.styledTopRatio)
 
         case .transparent:
-            let badgeWidth = unit * WrapOverlayLayout.transparentBadgeWidthRatio
-            let badgeHeight = unit * WrapOverlayLayout.transparentBadgeHeightRatio
-            let badgeFrame = CGRect(
-                x: (renderSize.width - badgeWidth) / 2,
-                y: renderSize.height * WrapOverlayLayout.transparentBadgeTopRatio,
-                width: badgeWidth,
-                height: badgeHeight
-            )
-            let badge = CALayer()
-            badge.frame = badgeFrame
-            badge.borderColor = UIColor.white.cgColor
-            badge.borderWidth = max(unit * 0.0032, 1)
-            badge.cornerRadius = badgeHeight / 2
-            layer.addSublayer(badge)
-
-            let badgeFont = UIFont.systemFont(
-                ofSize: unit * WrapOverlayLayout.transparentBadgeFontRatio,
-                weight: .bold
-            )
-            let badgeTextHeight = badgeFont.pointSize * WrapOverlayLayout.lineHeightRatio
-            layer.addSublayer(textLayer(
-                "TRANSPARENT",
-                font: badgeFont,
-                frame: CGRect(
-                    x: badgeFrame.minX,
-                    y: badgeFrame.midY - badgeTextHeight / 2,
-                    width: badgeFrame.width,
-                    height: badgeTextHeight
-                )
-            ))
-
+            // The badge identifies this option in the template picker. It is not part of
+            // the sticker users copy, save, or share.
             addMetadata(
-                startY: badgeFrame.maxY
-                    + unit * WrapOverlayLayout.transparentBadgeGapRatio
+                startY: renderSize.height * WrapOverlayLayout.transparentBadgeTopRatio
+                    + unit * (
+                        WrapOverlayLayout.transparentBadgeHeightRatio
+                            + WrapOverlayLayout.transparentBadgeGapRatio
+                    )
             )
         }
 
