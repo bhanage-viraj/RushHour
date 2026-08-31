@@ -59,14 +59,20 @@ enum PhotoLibrarySaver {
         }
     }
 
-    /// Saves a single image (e.g. an activity snapshot) to the Photos library.
+    /// Saves a single image as PNG data so transparent share overlays retain their alpha channel.
     static func saveImage(_ image: UIImage) async throws {
         guard await requestAddPermissionIfNeeded() else {
             throw SaveError.denied
         }
+        guard let pngData = image.pngData() else {
+            throw SaveError.failed("Could not prepare photo for saving.")
+        }
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             PHPhotoLibrary.shared().performChanges {
-                PHAssetChangeRequest.creationRequestForAsset(from: image)
+                let request = PHAssetCreationRequest.forAsset()
+                let options = PHAssetResourceCreationOptions()
+                options.originalFilename = "RushHourWrap-\(UUID().uuidString).png"
+                request.addResource(with: .photo, data: pngData, options: options)
             } completionHandler: { success, error in
                 if let error {
                     continuation.resume(throwing: SaveError.failed(error.localizedDescription))
