@@ -105,6 +105,9 @@ struct HomePage: View {
                         GeometryReader { _ in
                             Image("HomeReadyGlow")
                                 .resizable()
+                                // The Figma source is a transparent SVG: keep its individual
+                                // red, yellow, and green alpha gradients intact over the preview.
+                                .renderingMode(.original)
                                 .frame(
                                     width: HomeDesign.readyGlowSize.width * homeScale,
                                     height: HomeDesign.readyGlowSize.height * homeScale
@@ -237,8 +240,9 @@ private enum HomeDesign {
     static let recordCenter = CGPoint(x: 201, y: 703)
     static let flip = CGRect(x: 326, y: 683, width: 40, height: 40)
     static let readyGlowSize = CGSize(width: 759.182, height: 479.275)
-    // The Figma glow is positioned inside the camera card, whose origin is x: 10.
-    static let readyGlowCenter = CGPoint(x: 213.932, y: 98)
+    // This is the glow's center in the camera card's coordinate space. It must
+    // not include the camera card's page-level x origin.
+    static let readyGlowCenter = CGPoint(x: 203.932, y: 98)
 
     static func scale(in size: CGSize) -> CGFloat {
         min(size.width / Self.size.width, size.height / Self.size.height)
@@ -548,8 +552,20 @@ private struct HomeTrafficTimer: View {
         static let slotOrigin = CGPoint(x: 14.034, y: 18.014)
         static let slotSize = CGSize(width: 99.358, height: 99.358)
         static let slotSpacing: CGFloat = 10.796
-        static let numberOrigin = CGPoint(x: 2.67, y: 1.65)
-        static let numberSize = CGSize(width: 92, height: 94)
+        static let dialOrigin = CGPoint(x: 4.005, y: 2.986)
+        static let dialSize = CGSize(width: 92, height: 94)
+        static let slotCornerRadius: CGFloat = 17.347
+        static let dialCornerRadius: CGFloat = 13
+        static let slotShadowOrigin = CGPoint(x: -8.41, y: 84.81)
+        static let slotShadowSize = CGSize(width: 116.227, height: 43.503)
+        static let topMaskOrigin = CGPoint(x: -1.08, y: -0.2)
+        static let topMaskSize = CGSize(width: 348.699, height: 52.118)
+        static let labels = [
+            (text: "HOURS", center: CGPoint(x: 63.01, y: 130.26)),
+            (text: "MINUTES", center: CGPoint(x: 172.93, y: 130.26)),
+            (text: "SECONDS", center: CGPoint(x: 284.19, y: 130.26))
+        ]
+        static let colonCenters = [CGPoint(x: 119.04, y: 68), CGPoint(x: 229.04, y: 68)]
     }
 
     private var timerHeight: CGFloat { timerWidth * HomeDesign.timer.height / HomeDesign.timer.width }
@@ -575,12 +591,6 @@ private struct HomeTrafficTimer: View {
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
 
-            Image("HomeTrafficTimer")
-                .resizable()
-                .frame(width: timerWidth, height: timerHeight)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-
             HStack(spacing: Layout.slotSpacing * scale) {
                 dial($hours, range: 0...23, unit: .hour, scale: scale)
                 dial($minutes, range: 0...59, unit: .minute, scale: scale)
@@ -588,6 +598,39 @@ private struct HomeTrafficTimer: View {
             }
             .frame(width: slotGroupWidth, height: slotSize.height, alignment: .topLeading)
             .offset(x: Layout.slotOrigin.x * scale, y: Layout.slotOrigin.y * scale)
+
+            Image("HomeTrafficTimerTopMask")
+                .resizable()
+                .frame(
+                    width: Layout.topMaskSize.width * scale,
+                    height: Layout.topMaskSize.height * scale
+                )
+                .offset(
+                    x: Layout.topMaskOrigin.x * scale,
+                    y: Layout.topMaskOrigin.y * scale
+                )
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+
+            ForEach(Array(Layout.labels.enumerated()), id: \.offset) { _, label in
+                Text(label.text)
+                    .font(.system(size: 9.669 * scale, weight: .regular))
+                    .tracking(1.064 * scale)
+                    .foregroundStyle(.white.opacity(0.6))
+                    .lineLimit(1)
+                    .fixedSize()
+                    .position(x: label.center.x * scale, y: label.center.y * scale)
+                    .accessibilityHidden(true)
+            }
+
+            ForEach(Array(Layout.colonCenters.enumerated()), id: \.offset) { _, center in
+                Text(":")
+                    .font(.custom("Special Gothic Expanded One", size: 20 * scale))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .position(x: center.x * scale, y: center.y * scale)
+                    .accessibilityHidden(true)
+            }
         }
         .frame(width: timerWidth, height: timerHeight)
     }
@@ -602,34 +645,57 @@ private struct HomeTrafficTimer: View {
             width: Layout.slotSize.width * scale,
             height: Layout.slotSize.height * scale
         )
-        let numberSize = CGSize(
-            width: Layout.numberSize.width * scale,
-            height: Layout.numberSize.height * scale
+        let dialSize = CGSize(
+            width: Layout.dialSize.width * scale,
+            height: Layout.dialSize.height * scale
         )
-        let showsFigmaSample = value.wrappedValue == 0
 
         return ZStack(alignment: .topLeading) {
-            if !showsFigmaSample {
-                // The Figma export contains its sample 0/1 values. Cover only those
-                // glyph areas before rendering a changed live value on top.
-                Color.black
-                    .frame(width: 46 * scale, height: 42 * scale)
-                    .position(x: 48.7 * scale, y: 48.5 * scale)
-                    .allowsHitTesting(false)
-
-                Color.black
-                    .frame(width: 24 * scale, height: 24 * scale)
-                    .position(x: 48.7 * scale, y: 85.5 * scale)
-                    .allowsHitTesting(false)
-            }
-
-            HomeTimeDial(selected: value, range: range, size: numberSize, unit: unit)
-                .frame(width: numberSize.width, height: numberSize.height)
-                .offset(
-                    x: Layout.numberOrigin.x * scale,
-                    y: Layout.numberOrigin.y * scale
+            Image("HomeTrafficTimerSlotShadow")
+                .resizable()
+                .frame(
+                    width: Layout.slotShadowSize.width * scale,
+                    height: Layout.slotShadowSize.height * scale
                 )
-                .opacity(showsFigmaSample ? 0.02 : 1)
+                .offset(
+                    x: Layout.slotShadowOrigin.x * scale,
+                    y: Layout.slotShadowOrigin.y * scale
+                )
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+
+            RoundedRectangle(cornerRadius: Layout.slotCornerRadius * scale, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 63 / 255, green: 63 / 255, blue: 63 / 255),
+                            Color(red: 32 / 255, green: 32 / 255, blue: 32 / 255)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: Layout.slotCornerRadius * scale, style: .continuous)
+                        .stroke(Color(red: 61 / 255, green: 61 / 255, blue: 61 / 255), lineWidth: 1.334 * scale)
+                }
+                .frame(width: slotSize.width, height: slotSize.height)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+
+            RoundedRectangle(cornerRadius: Layout.dialCornerRadius * scale, style: .continuous)
+                .fill(.black)
+                .frame(width: dialSize.width, height: dialSize.height)
+                .offset(x: Layout.dialOrigin.x * scale, y: Layout.dialOrigin.y * scale)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+
+            HomeTimeDial(selected: value, range: range, size: dialSize, unit: unit)
+                .frame(width: dialSize.width, height: dialSize.height)
+                .offset(
+                    x: Layout.dialOrigin.x * scale,
+                    y: Layout.dialOrigin.y * scale
+                )
         }
         .frame(width: slotSize.width, height: slotSize.height)
     }
