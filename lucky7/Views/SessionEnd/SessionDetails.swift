@@ -102,6 +102,8 @@ struct SessionDetails: View {
                 VStack(spacing: 24) {
                     sessionCard
                         .disabled(isSaving)
+                        .opacity(isSaving ? 0.6 : 1)
+                        .animation(.easeInOut(duration: 0.2), value: isSaving)
                     saveButton
                 }
                 .padding(.horizontal, 20)
@@ -310,6 +312,15 @@ struct SessionDetails: View {
                 .padding(.vertical, 20)
                 .background(saveButtonBackground)
                 .clipShape(RoundedRectangle(cornerRadius: 30))
+                // The app's buttons read as tappable via a black outline + hard drop
+                // shadow; without it the flat navy fill looked disabled even when it
+                // wasn't. Drop both while inert so "disabled" stays unambiguous.
+                .overlay(
+                    RoundedRectangle(cornerRadius: 30)
+                        .stroke(Color.black, lineWidth: isSaveActionable ? 2 : 0)
+                )
+                .shadow(color: .black.opacity(isSaveActionable ? 1 : 0), radius: 0, y: 4)
+                .animation(.easeInOut(duration: 0.2), value: isSaveActionable)
         }
         .disabled(!canSave || isSaving)
         .accessibilityLabel(isSaving ? "Finishing session wrap" : "Save session")
@@ -324,6 +335,9 @@ struct SessionDetails: View {
         }
         return canSave ? saveButtonColor : disabledSaveButtonColor
     }
+
+    /// True only when tapping does something — drives the raised/tappable styling.
+    private var isSaveActionable: Bool { canSave && !isSaving }
 
     private var accessibilitySaveHint: String {
         if isSaving {
