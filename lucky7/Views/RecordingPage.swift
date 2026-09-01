@@ -48,6 +48,22 @@ struct RecordingPage: View {
 
     private let focusTransition = Animation.spring(response: 0.42, dampingFraction: 0.92, blendDuration: 0.08)
 
+    /// Dim only while frames are actually being captured and nothing needs the
+    /// user's attention — any modal, pause, or export restores full brightness.
+    private var shouldDimScreen: Bool {
+        hasStarted
+            && sessionTimer.isRunning
+            && !showEndConfirm
+            && !showFinishSessionFlow
+            && !showCrashSession
+            && !showNotifNudge
+            && pendingPrompt == nil
+            && unlock == nil
+            && breakBlockedInfo == nil
+            && !sessionRecording.isExporting
+            && scenePhase == .active
+    }
+
     // jailbreak: distraction prompt + in-app unlock card + records sheet
     @State private var pendingPrompt: PendingPrompt?
     @State private var unlock: UnlockInfo?
@@ -312,6 +328,12 @@ struct RecordingPage: View {
             }
         }
         .accessibilityAnnounce(when: sessionRecording.isExporting, message: "Saving your video")
+        // Battery saver: covers both the normal recording layout and the expanded
+        // full-focus overlay (both live in this ZStack). Any touch wakes the screen.
+        .simultaneousGesture(TapGesture().onEnded { ScreenDimmer.touch() })
+        .onChange(of: shouldDimScreen) { _, dim in
+            ScreenDimmer.setActive(dim)
+        }
         #if os(iOS)
         .toolbar(.hidden, for: .tabBar)   // recording is a full-screen mode — keep the tab bar on the home page only
         #endif
@@ -341,6 +363,7 @@ struct RecordingPage: View {
             recLog("onAppear embedded=\(embedded) autoStart=\(autoStart) cameraReady=\(sessionRecording.cameraReady) hasStarted=\(hasStarted)")
             if !embedded { sessionRecording.prepareCamera() }
             if autoStart { beginSession() }   // camera may already be ready (prepared on Home)
+            ScreenDimmer.setActive(shouldDimScreen)   // re-arm if we return mid-session
             checkPendingEvents()
             // The shield return relies on a tappable notification. Request it HERE (a stable
             // screen) — the splash-time request gets cancelled before the user can respond,
@@ -369,6 +392,7 @@ struct RecordingPage: View {
             Text("Rush Hour sends a quick notification to bring you back here when you tap “Break It” or “Back to Session” on the block screen. Tap that notification to return — without notifications on, it can fail.")
         }
         .onDisappear {
+            ScreenDimmer.release()   // never leave the user's screen dim outside the session
             if !sessionRecording.isExporting, !sessionRecording.isRecording {
                 ScreenWakeLock.release()
             }
