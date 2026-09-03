@@ -327,10 +327,16 @@ struct RecordingPage: View {
                 .accessibilityAddTraits(.isModal)
             }
         }
+        // The embedded camera belongs to HomePage, so include the transparent gaps
+        // between our controls in hit testing as well as the controls themselves.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
         .accessibilityAnnounce(when: sessionRecording.isExporting, message: "Saving your video")
-        // Battery saver: covers both the normal recording layout and the expanded
-        // full-focus overlay (both live in this ZStack). Any touch wakes the screen.
-        .simultaneousGesture(TapGesture().onEnded { ScreenDimmer.touch() })
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in ScreenDimmer.touch() }
+                .onEnded { _ in ScreenDimmer.touch() }
+        )
         .onChange(of: shouldDimScreen) { _, dim in
             ScreenDimmer.setActive(dim)
         }
