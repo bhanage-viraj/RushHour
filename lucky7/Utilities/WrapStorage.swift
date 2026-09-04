@@ -53,6 +53,14 @@ enum WrapStorage {
             .appendingPathComponent("wrap_share_\(UUID().uuidString).mp4")
     }
 
+    /// Share the encoded PNG file, not a UIImage that an activity can flatten or re-encode.
+    static func writeTemporarySharePNG(_ data: Data) throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RushHourWrap-\(UUID().uuidString).png")
+        try data.write(to: url, options: .atomic)
+        return url
+    }
+
     /// A fresh destination for a clean session master. Lives in Application Support,
     /// not tmp, because iOS is free to purge temporary files.
     static func newFinalURL() -> URL {

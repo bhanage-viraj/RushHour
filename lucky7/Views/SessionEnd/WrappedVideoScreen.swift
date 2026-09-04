@@ -613,6 +613,7 @@ struct VideoSharePayload: Identifiable {
 struct ImageSharePayload: Identifiable {
     let id = UUID()
     let image: UIImage
+    let url: URL
     let title: String
     var isTransparentSticker = false
 }
@@ -702,14 +703,14 @@ private final class ImageShareItemSource: NSObject, UIActivityItemSource {
     }
 
     func activityViewControllerPlaceholderItem(_ activityViewController: UIActivityViewController) -> Any {
-        payload.image
+        payload.url
     }
 
     func activityViewController(
         _ activityViewController: UIActivityViewController,
         itemForActivityType activityType: UIActivity.ActivityType?
     ) -> Any? {
-        payload.image
+        payload.url
     }
 
     func activityViewController(
@@ -786,7 +787,12 @@ private final class InstagramStoryActivity: UIActivity {
         }
 
         if let url = item as? URL {
-            return FileManager.default.fileExists(atPath: url.path) ? .video(url) : nil
+            guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+            if UTType(filenameExtension: url.pathExtension) == .png {
+                guard let image = UIImage(contentsOfFile: url.path) else { return nil }
+                return .image(image, isSticker: true)
+            }
+            return .video(url)
         }
 
         if let source = item as? VideoShareItemSource {
