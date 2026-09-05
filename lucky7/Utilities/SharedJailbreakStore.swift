@@ -66,8 +66,8 @@ enum SharedJailbreakStore {
 
     static func nextUnhandledBreak() -> (action: PendingJailbreakEvent, config: PendingJailbreakEvent?)? {
         let handledUntil = lastPromptedBreakAt
-        let actions = loadArray(actionFileURL).compactMap(parse)
-        let configs = loadArray(configFileURL).compactMap(parse).sorted { $0.occurredAt > $1.occurredAt }
+        let actions = loadArray(actionFileURL).compactMap { parse($0) }
+        let configs = loadArray(configFileURL).compactMap { parse($0) }.sorted { $0.occurredAt > $1.occurredAt }
 
         guard let breakAction = actions
             .filter({ $0.actionTaken == "break" && $0.occurredAt.timeIntervalSince1970 > handledUntil })

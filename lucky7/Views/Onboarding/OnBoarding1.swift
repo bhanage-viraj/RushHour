@@ -45,13 +45,10 @@ struct OnBoarding1: View {
                     .font(.custom("Special Gothic Expanded One", size: 28))
                     .padding(.bottom, 10)
 
-                (
-                    Text("Everything feels urgent but nothing feels finished. You're stuck in ")
-                        .font(.system(size: 17))
-                    + Text("Rush Hour")
-                        .font(.system(size: 17, weight: .bold))
-                        .italic()
+                Text(
+                    "Everything feels urgent but nothing feels finished. You're stuck in \(Text("Rush Hour").bold().italic())"
                 )
+                .font(.system(size: 17))
                 .multilineTextAlignment(.center)
             }
             .foregroundStyle(.black)

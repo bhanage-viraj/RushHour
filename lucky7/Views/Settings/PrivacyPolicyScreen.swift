@@ -27,7 +27,7 @@ struct PrivacyPolicyScreen: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     VStack(alignment: .leading, spacing: 16) {
-                        Text("Last updated: September 3, 2026")
+                        Text("Last updated: September 5, 2026")
                             .font(.subheadline)
 
                         Text(PrivacyPolicyContent.introduction)
@@ -85,60 +85,52 @@ private enum PrivacyPolicyContent {
 
     static let sections: [Section] = [
         Section(title: "1. Summary", body: """
-        Rush Hour is designed to work primarily on your device, using Apple's built-in Screen Time APIs (Family Controls, Managed Settings, and Device Activity). We do not require an account, and we do not operate a backend server that stores your personal data. Your app-selection choices, usage schedules, and screen-time activity are processed locally by Apple's frameworks and are not transmitted to us.
+        Rush Hour is designed to work on your device. We do not require an account, and we do not operate a backend server that receives your focus-session data, Screen Time selections, camera recordings, or exported wraps. The App does not use advertising or third-party analytics SDKs.
         """),
-        Section(title: "2. Information We Do Not Collect", body: """
-        We do not collect, and Rush Hour does not transmit off your device:
+        Section(title: "2. Information Processed on Your Device", body: """
+        To provide its features, Rush Hour processes information locally, including:
 
-        Your name, email address, or other contact information
+        Apps, websites, and categories you choose through Apple's Family Activity Picker
 
-        The specific list of apps or app categories you choose to restrict or block, or your usage schedules (this selection is handled by Apple's Family Activity Picker and stored using Apple's encrypted, on-device tokens, which are opaque even to us as developers)
+        Focus schedules, session duration, distraction records, titles, descriptions, and activity snapshots you choose to add
 
-        Your actual screen time, app usage statistics, or activity reports
+        Camera frames recorded after you start a timelapse session, plus the videos and wrap images produced from them
 
-        Photos, contacts, location, health, or financial data
+        App preferences and session-recovery information
 
-        Any data via a jailbreak or device-integrity check beyond a local yes/no determination used to protect the app's core functionality (see Section 4)
+        Rush Hour does not transmit this information to us. We do not collect your contacts, location, health information, financial information, advertising identifiers, or browsing history.
         """),
-        Section(title: "3. How the Screen Time / Family Controls Feature Works", body: """
-        Rush Hour uses Apple's Family Controls, Managed Settings, and Device Activity frameworks to let you:
+        Section(title: "3. Screen Time and Family Controls", body: """
+        Rush Hour uses Apple's Family Controls, Managed Settings, Device Activity, and App & Website Usage APIs to let you select distractions, apply shield screens, manage focus breaks, and show restriction status.
 
-        Select apps, websites, or categories you want to restrict (via Apple's system picker - Rush Hour never sees which specific apps you selected, only anonymized tokens provided by Apple)
-
-        Apply a "shield" screen (via a Shield Action / Shield Configuration extension) when you try to open a restricted app
-
-        Display a widget summarizing your restriction status
-
-        All of this processing happens on-device, within Apple's sandboxed frameworks. Apple's system, not Rush Hour or its developer, enforces the privacy boundary that keeps your specific app selections opaque to the app itself. We do not have access to, and do not collect, which individual apps you have chosen to restrict.
+        Apple represents your selections using on-device tokens. When Apple grants the required permission and data access is available, Rush Hour may use Apple's on-device app metadata, such as a selected app's localized display name, to label distraction records in the App. Selection tokens, resolved names, schedules, and activity information remain on your device and are not sent to us.
         """),
-        Section(title: "4. Jailbreak / Device Integrity Detection", body: """
-        Rush Hour includes a jailbreak-detection component (RushHourJailBreakMonitor) that checks for signs of device tampering (jailbreaking) that could allow restrictions to be bypassed. This check:
+        Section(title: "4. Camera, Photos, and Sharing", body: """
+        Rush Hour accesses the camera only after you grant permission and uses it to record a timelapse during a focus session. The App does not record microphone audio. Camera frames and generated video are processed on your device.
 
-        Runs locally on your device
+        When you choose Save to Photos, Rush Hour asks iOS for Photos permission and saves the selected video or image to your photo library. When you delete a session whose saved Photos item is linked to that session, the App may ask iOS to delete that specific item. Copies saved in Photos remain there until you or the App delete them.
 
-        Produces only a local pass/fail result used to enforce app functionality (for example, warning you or disabling bypass routes)
-
-        Does not collect or transmit any device-identifying information to us
+        When you choose a share destination, iOS or the selected third-party app receives the media you chose to share. Rush Hour does not automatically upload media. The receiving service handles shared media under its own privacy policy.
         """),
         Section(title: "5. Data Stored Locally", body: """
-        Preferences such as your restriction schedules, streaks, or app settings may be stored locally on your device (for example, using UserDefaults, a local database, or Apple's Managed Settings Store) so the app functions correctly and your widget stays up to date. This data stays on your device and in your iCloud backup (if you have iCloud device backups enabled) - we do not have a server that receives it.
+        Rush Hour stores preferences, Family Controls tokens, schedules, session history, distraction records, titles, descriptions, and snapshots in local app or App Group storage. Session source videos and generated wraps are stored in the App's Application Support directory and are marked as excluded from iCloud backup. Other local app data may be included in a device backup according to your iOS backup settings.
         """),
         Section(title: "6. Third-Party Services", body: """
-        Rush Hour does not integrate any third-party analytics, advertising, crash-reporting, or backend/cloud services. We do not share your data with any third party, because Rush Hour does not collect data to share. All functionality is provided using Apple's own system frameworks (Family Controls, Screen Time, Device Activity, WidgetKit), which are governed by Apple's own privacy practices (see Section 7).
+        Rush Hour does not integrate third-party advertising, analytics, crash-reporting, or backend/cloud SDKs. User-initiated sharing is handled by iOS and the destination selected by the user. Those services receive only the content the user chooses to share and are governed by their own privacy policies.
 
         If this changes in a future update (for example, if analytics or a backend service is added), this Privacy Policy will be updated accordingly before that update is released, and the App Store Privacy Nutrition Label will be revised to match.
         """),
         Section(title: "7. Apple Frameworks", body: """
-        Rush Hour relies on Apple's Family Controls, Screen Time, Device Activity, and WidgetKit APIs. Apple's own data handling for these frameworks is governed by Apple's Privacy Policy, not this document. We are not responsible for, and do not have visibility into, Apple's internal handling of Screen Time data.
+        Rush Hour relies on Apple frameworks including Family Controls, Managed Settings, Device Activity, App & Website Usage, AVFoundation, Photos, SwiftData, and WidgetKit. Apple's handling of information through its operating system and services is governed by Apple's Privacy Policy.
         """),
         Section(title: "8. Children's Privacy", body: """
-        Rush Hour does not knowingly collect personal information from children. Because the app processes Screen Time data entirely on-device without transmitting it to us, no personal data is collected from users of any age. If you believe a child has provided us with personal information (for example, via a support email), contact us at the address above and we will delete it.
+        Rush Hour does not knowingly collect personal information from children. The App processes its focus, Screen Time, and recording data on-device rather than transmitting it to us. If a child sends personal information directly to our support email, contact us and we will delete it.
         """),
         Section(title: "9. Data Retention and Deletion", body: """
-        Since we do not collect or store your data on any server, there is no remote data for us to retain or delete. Uninstalling the app removes all locally stored app data from your device (subject to standard iOS behavior and any iCloud backups you control).
+        We do not retain your app data on a server. You can delete individual sessions inside Rush Hour. Uninstalling the App removes its local container according to standard iOS behavior. Media previously saved to Photos or sent through another app is outside Rush Hour's container and is not removed merely by uninstalling Rush Hour.
         """),
         Section(title: "10. Your Rights", body: """
-        Because Rush Hour does not collect personal data on our servers, most data-subject rights (access, correction, deletion, portability) are automatically satisfied - your data lives only on your device, under your control. If you have questions or requests regarding this policy, contact us at rushhourada@gmail.com.
+        Rush Hour does not maintain a server-side account or database containing your app data. You control the information stored in the App and can remove it by deleting sessions or uninstalling the App. For privacy questions or information sent directly to our support email, contact rushhourada@gmail.com.
         """),
         Section(title: "11. Changes to This Policy", body: """
         We may update this Privacy Policy from time to time. Changes will be posted on this page with a revised "Last updated" date. Continued use of the app after changes constitutes acceptance of the updated policy.

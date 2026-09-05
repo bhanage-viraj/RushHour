@@ -276,7 +276,8 @@ final class FocusViewModel: ObservableObject {
     private func startTicking() {
         stopTicking()
         tickTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.tick() }
+            guard let self else { return }
+            Task { @MainActor in self.tick() }
         }
     }
 
