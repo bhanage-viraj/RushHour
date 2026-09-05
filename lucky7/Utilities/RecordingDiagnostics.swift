@@ -28,7 +28,7 @@ enum RecordingDiagnostics {
             if FileManager.default.fileExists(atPath: logURL.path),
                let handle = try? FileHandle(forWritingTo: logURL) {
                 defer { try? handle.close() }
-                try? handle.seekToEnd()
+                _ = try? handle.seekToEnd()
                 try? handle.write(contentsOf: data)
             } else {
                 try? data.write(to: logURL, options: .atomic)
@@ -45,4 +45,3 @@ enum RecordingDiagnostics {
         try? FileManager.default.removeItem(at: logURL)
     }
 }
-

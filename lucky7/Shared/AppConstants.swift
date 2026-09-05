@@ -8,7 +8,7 @@ import Foundation
 
 enum AppConstants {
     /// Source timelapse timing stays at 60 fps so 1,800 captured frames remain 30 seconds.
-    static let wrappedOutputFPS: Double = 60
+    nonisolated static let wrappedOutputFPS: Double = 60
 
     /// Gallery/share exports render at 30 fps while preserving the source duration.
     static let finalRenderFPS: Double = 30

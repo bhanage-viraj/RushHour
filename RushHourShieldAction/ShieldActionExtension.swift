@@ -68,7 +68,10 @@ class ShieldActionExtension: ShieldActionDelegate {
             recordAction(tokenData: tokenData, action: "back")
             scheduleReturnNotification()
             respond(completionHandler)
-        case .secondaryButtonPressed:
+        case .secondaryButtonPressed,
+             .firstSecondarySubmenuItemPressed,
+             .secondSecondarySubmenuItemPressed,
+             .thirdSecondarySubmenuItemPressed:
             recordAction(tokenData: tokenData, action: "break")
             scheduleReasonPromptNotification()
             respond(completionHandler)

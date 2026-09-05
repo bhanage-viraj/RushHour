@@ -14,7 +14,7 @@ enum NotificationPermission {
         let center = UNUserNotificationCenter.current()
         let settings = await center.notificationSettings()
         guard settings.authorizationStatus == .notDetermined else { return }
-        _ = try? await center.requestAuthorization(options: [.alert, .sound, .badge, .timeSensitive])
+        _ = try? await center.requestAuthorization(options: [.alert, .sound, .badge])
     }
 
     // The shield → app return relies on a notification fallback, so the block
