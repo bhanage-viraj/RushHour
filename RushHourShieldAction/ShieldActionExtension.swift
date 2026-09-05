@@ -80,9 +80,9 @@ class ShieldActionExtension: ShieldActionDelegate {
         }
     }
 
-    // Notifications are the reliable return path; close the shield after scheduling.
+    // The notification remains a fallback if the system cannot complete the direct return.
     private func respond(_ completionHandler: @escaping (ShieldActionResponse) -> Void) {
-        completionHandler(.close)
+        completionHandler(.openParentalControlsApp)
     }
 
     private func recordAction(tokenData: Data?, action: String) {
