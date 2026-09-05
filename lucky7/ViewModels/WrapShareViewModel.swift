@@ -30,6 +30,7 @@ final class WrapShareViewModel: ObservableObject {
     private var instagramStoryVideoURL: URL?
     private var instagramStorySourceURL: URL?
     private var transparentImage: UIImage?
+    private var imageShareURL: URL?
     private var didPrepare = false
 
     init(
@@ -111,7 +112,7 @@ final class WrapShareViewModel: ObservableObject {
 
     func completeSystemShare(error: Error?) {
         videoSharePayload = nil
-        imageSharePayload = nil
+        clearImageSharePayload()
         if let error {
             errorMessage = error.localizedDescription
         }
@@ -139,8 +140,16 @@ final class WrapShareViewModel: ObservableObject {
         instagramStorySourceURL = nil
         transparentImage = nil
         videoSharePayload = nil
-        imageSharePayload = nil
+        clearImageSharePayload()
         messageSharePayload = nil
+    }
+
+    private func clearImageSharePayload() {
+        if let imageShareURL {
+            try? FileManager.default.removeItem(at: imageShareURL)
+        }
+        imageShareURL = nil
+        imageSharePayload = nil
     }
 
     private enum Destination {
@@ -189,11 +198,24 @@ final class WrapShareViewModel: ObservableObject {
                         title: self.metadata.title
                     )
                 case .image(let image):
-                    self.imageSharePayload = ImageSharePayload(
-                        image: image,
-                        title: self.metadata.title,
-                        isTransparentSticker: true
-                    )
+                    guard let data = image.pngData() else {
+                        self.errorMessage = "Rush Hour could not prepare this PNG."
+                        self.isWorking = false
+                        return
+                    }
+                    do {
+                        let url = try WrapStorage.writeTemporarySharePNG(data)
+                        self.clearImageSharePayload()
+                        self.imageShareURL = url
+                        self.imageSharePayload = ImageSharePayload(
+                            image: image,
+                            url: url,
+                            title: self.metadata.title,
+                            isTransparentSticker: true
+                        )
+                    } catch {
+                        self.errorMessage = "Could not prepare the PNG file: \(error.localizedDescription)"
+                    }
                 }
 
             case .messages:

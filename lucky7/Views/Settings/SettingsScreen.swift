@@ -105,6 +105,17 @@ struct SettingsScreen: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("About Rush Hour")
                 .accessibilityHint("App information and version")
+
+                Divider().padding(.horizontal, 16)
+
+                NavigationLink {
+                    PrivacyPolicyScreen()
+                } label: {
+                    row(icon: "info.circle", title: "PRIVACY POLICY")
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Privacy policy")
+                .accessibilityHint("Read how Rush Hour handles your information")
             }
         }
     }

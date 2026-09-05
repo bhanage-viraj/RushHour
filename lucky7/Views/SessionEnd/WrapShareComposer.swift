@@ -96,7 +96,9 @@ struct WrapShareComposer: View {
         .sheet(item: $viewModel.videoSharePayload) { payload in
             VideoShareSheet(payload: payload, onComplete: viewModel.completeSystemShare)
         }
-        .sheet(item: $viewModel.imageSharePayload) { payload in
+        .sheet(item: $viewModel.imageSharePayload, onDismiss: {
+            viewModel.completeSystemShare(error: nil)
+        }) { payload in
             ImageShareSheet(payload: payload, onComplete: viewModel.completeSystemShare)
         }
         .sheet(item: $viewModel.messageSharePayload) { payload in
