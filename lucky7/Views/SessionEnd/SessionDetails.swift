@@ -40,10 +40,6 @@ struct SessionDetails: View {
     private let maxTitleLength = 30
     private let staleRollupSliceMaxSeconds: TimeInterval = 5
 
-    /// Dark navy fill for the SAVE button (matches the design mock-up).
-    private let saveButtonColor = Color(red: 30 / 255, green: 58 / 255, blue: 95 / 255)
-    private let disabledSaveButtonColor = Color(red: 155 / 255, green: 164 / 255, blue: 174 / 255)
-
     // filtering only 3 frames for snapshots
     private var displayFrame: [UIImage] {
         let sourceFrames = videoFrames.isEmpty ? sessionRecording.previewFrames : videoFrames
@@ -307,19 +303,12 @@ struct SessionDetails: View {
                 Text(isSaving ? "FINISHING WRAP..." : "SAVE")
                     .font(.custom("Special Gothic Expanded One", size: 16))
             }
-                .foregroundColor(.white.opacity(canSave || isSaving ? 1 : 0.72))
+                .foregroundColor(.white)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 20)
-                .background(saveButtonBackground)
+                .background(Color.black)
                 .clipShape(RoundedRectangle(cornerRadius: 30))
-                // The app's buttons read as tappable via a black outline + hard drop
-                // shadow; without it the flat navy fill looked disabled even when it
-                // wasn't. Drop both while inert so "disabled" stays unambiguous.
-                .overlay(
-                    RoundedRectangle(cornerRadius: 30)
-                        .stroke(Color.black, lineWidth: isSaveActionable ? 2 : 0)
-                )
-                .shadow(color: .black.opacity(isSaveActionable ? 1 : 0), radius: 0, y: 4)
+                .opacity(isSaveActionable ? 1 : 0.4)
                 .animation(.easeInOut(duration: 0.2), value: isSaveActionable)
         }
         .disabled(!canSave || isSaving)
@@ -329,14 +318,7 @@ struct SessionDetails: View {
         .accessibilityAddTraits(isSaving ? .updatesFrequently : [])
     }
 
-    private var saveButtonBackground: Color {
-        if isSaving {
-            return saveButtonColor
-        }
-        return canSave ? saveButtonColor : disabledSaveButtonColor
-    }
-
-    /// True only when tapping does something — drives the raised/tappable styling.
+    /// True only when tapping does something — drives the dimmed disabled look.
     private var isSaveActionable: Bool { canSave && !isSaving }
 
     private var accessibilitySaveHint: String {
