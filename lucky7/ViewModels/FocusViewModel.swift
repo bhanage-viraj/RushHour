@@ -45,6 +45,15 @@ final class FocusViewModel: ObservableObject {
             || !selection.webDomainTokens.isEmpty
     }
 
+    /// How many things the user picked in the Family Activity picker.
+    /// Apps, whole categories and web domains all count as one pick each —
+    /// onboarding uses this for its "at least 3" gate.
+    var selectedCount: Int {
+        selection.applicationTokens.count
+            + selection.categoryTokens.count
+            + selection.webDomainTokens.count
+    }
+
     var selectionSummary: String {
         let appCount = selection.applicationTokens.count
         let categoryCount = selection.categoryTokens.count

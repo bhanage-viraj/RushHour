@@ -6,50 +6,50 @@
 import SwiftUI
 import FamilyControls
 
+/// Step 3 — explain WHY Screen Time is needed, then ask for it.
+///
+/// This order is deliberate (the old flow was rejected by App Review): the
+/// screen only explains and offers CONTINUE. Tapping CONTINUE is what raises
+/// the system "Rush Hour Would Like to Access Screen Time" prompt. Only once
+/// the user approves do we move to `OnBoarding4`, where they pick apps.
+/// No picker and no permission request happen behind the user's back here.
 struct OnBoarding3: View {
     @Binding var path: [Int]
-    var onComplete: () -> Void = {}
-    
-    #if os(iOS)
-    @EnvironmentObject private var focusController: FocusViewModel
-    #endif
-    
-    @State private var showPicker = false
+
     @State private var isRequestingAuth = false
     @State private var authError: String?
-    
-    let onDone: () -> Void
-    
+
     var body: some View {
         OnboardingScreenTemplate(
             step: 3,
-            onContinue: finishOnboarding,
-            onSkip: finishOnboarding,
+            isDisabled: isRequestingAuth,
+            onContinue: continueTapped,
             onBack: goBack,
             onGoPrevious: goBack
         ) {
             mainContent
         }
         .navigationBarBackButtonHidden()
-        #if os(iOS)
-        .familyActivityPicker(isPresented: $showPicker, selection: focusController.selectionBinding)
-        #endif
         .alert(
             "Screen Time access needed",
             isPresented: .constant(authError != nil),
             presenting: authError
         ) { _ in
-            Button("OK") { authError = nil }
+            Button("Open Settings") {
+                openSettings()
+                authError = nil
+            }
+            Button("Not now", role: .cancel) { authError = nil }
         } message: { error in
             Text(error)
         }
     }
-    
+
     private func goBack() {
         guard !path.isEmpty else { return }
         path.removeLast()
     }
-    
+
     private var mainContent: some View {
         VStack(spacing: 0) {
             VStack(spacing: 0) {
@@ -57,96 +57,70 @@ struct OnBoarding3: View {
                     .font(.custom("Special Gothic Expanded One", size: 32))
                 Color.clear
                     .frame(height: 16)
-                Text("Select the apps that distracts. We'll remind you to stay focused when it matters most.")
+                Text("We'll remind you to stay focused when it matters most.")
                     .font(.system(size: 17))
                     .multilineTextAlignment(.center)
             }
             .foregroundStyle(.black)
             .multilineTextAlignment(.center)
             .fixedSize(horizontal: false, vertical: true)
-            
+            Spacer()
             Image(.blockedAppsMainScreen)
                 .resizable()
                 .scaledToFit()
-                .frame(height: 280)
+                .frame(height: .infinity, alignment: .center)
                 .layoutPriority(1)
                 .padding()
-            
-            pickerCard
-            
-            Text("Optional — you can set this up later in settings")
-                .font(.system(size: 13))
-                .foregroundStyle(.black.opacity(0.5))
-                .padding()
+            Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
-    
-    @ViewBuilder
-    private var pickerCard: some View {
-        #if os(iOS)
-        Button {
-            Task { await presentPicker() }
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: focusController.hasSelection ? "lock.shield.fill" : "lock.shield")
-                    .font(.title3)
-                    .foregroundStyle(Color(.white))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(focusController.hasSelection ? "Apps locked" : "Pick apps to block")
-                        .font(.headline)
-                        .foregroundStyle(.white)
-                    Text(focusController.hasSelection ? focusController.selectionSummary : "Tap to choose")
-                        .font(.caption)
-                        .foregroundStyle(.white)
-                }
-                Spacer()
-                if isRequestingAuth {
-                    ProgressView()
-                } else {
-                    Image(systemName: "chevron.right")
-                        .font(.caption)
-                        .foregroundStyle(.white)
-                }
-            }
-            .padding(16)
-            .background(.black, in: RoundedRectangle(cornerRadius: 16))
-        }
-        .buttonStyle(.plain)
-        .disabled(isRequestingAuth)
-        #endif
+
+    private func advance() {
+        path.append(4)
     }
-    
-    private func finishOnboarding() {
-        #if os(iOS)
-        if focusController.hasSelection {
-            focusController.persistSelection()
-        }
-        #endif
-        onDone()
-    }
-    
+
     #if os(iOS)
-    @MainActor
-    private func presentPicker() async {
-        if !ScreenTimeMonitorService.isAuthorized {
-            isRequestingAuth = true
-            defer { isRequestingAuth = false }
-            do {
-                try await ScreenTimeMonitorService.requestAuthorization()
-            } catch {
-                authError = error.localizedDescription
-                return
-            }
-        }
-        showPicker = true
+    private func continueTapped() {
+        Task { await requestScreenTimeThenAdvance() }
     }
+
+    @MainActor
+    private func requestScreenTimeThenAdvance() async {
+        // Already approved (user stepped back then forward again) → just move on;
+        // iOS would not show its prompt a second time anyway.
+        guard !ScreenTimeMonitorService.isAuthorized else {
+            advance()
+            return
+        }
+
+        isRequestingAuth = true
+        defer { isRequestingAuth = false }
+
+        do {
+            try await ScreenTimeMonitorService.requestAuthorization()
+            advance()
+        } catch {
+            // A denial is permanent for the app — iOS never re-prompts. Settings
+            // is the only way forward, so the alert offers that rather than
+            // leaving onboarding stuck on this step.
+            authError = error.localizedDescription
+        }
+    }
+
+    private func openSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
+    }
+    #else
+    private func continueTapped() { advance() }
+    private func openSettings() {}
     #endif
 }
 
 #Preview {
     NavigationStack {
-        OnBoarding3(path: .constant([2, 3]), onDone: {})
+        OnBoarding3(path: .constant([2, 3]))
     }
     .environmentObject(FocusViewModel())
 }

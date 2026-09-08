@@ -31,9 +31,10 @@ struct lucky7App: App {
                 .environmentObject(focusController)
                 .environmentObject(sessionTimer)
                 .environmentObject(sessionRecording)
-                .task {
-                    await NotificationPermission.requestIfNeeded()
-                }
+                // No notification prompt on launch — it used to fire here and
+                // landed on top of the first onboarding screen, asking before
+                // the user knew what it was for. `RecordingPage` requests it at
+                // the point it's actually needed (starting a session) instead.
                 .task {
                     // Roll completed weeks/months into recap videos and prune old slices.
                     await WrapRollupService.rollUpIfNeeded(context: container.mainContext)
