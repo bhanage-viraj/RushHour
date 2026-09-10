@@ -23,16 +23,17 @@ struct OnBoarding3: View {
         OnboardingScreenTemplate(
             step: 3,
             isDisabled: isRequestingAuth,
-            onContinue: continueTapped,
-            onBack: goBack,
-            onGoPrevious: goBack
+            onContinue: continueTapped
         ) {
             mainContent
         }
         .navigationBarBackButtonHidden()
         .alert(
             "Screen Time access needed",
-            isPresented: .constant(authError != nil),
+            isPresented: Binding(
+                get: { authError != nil },
+                set: { if !$0 { authError = nil } }
+            ),
             presenting: authError
         ) { _ in
             Button("Open Settings") {
@@ -45,11 +46,6 @@ struct OnBoarding3: View {
         }
     }
 
-    private func goBack() {
-        guard !path.isEmpty else { return }
-        path.removeLast()
-    }
-
     private var mainContent: some View {
         VStack(spacing: 0) {
             VStack(spacing: 0) {
@@ -57,7 +53,7 @@ struct OnBoarding3: View {
                     .font(.custom("Special Gothic Expanded One", size: 32))
                 Color.clear
                     .frame(height: 16)
-                Text("We'll remind you to stay focused when it matters most.")
+                Text("Screen Time access lets Rush Hour block the apps you choose during focus sessions.")
                     .font(.system(size: 17))
                     .multilineTextAlignment(.center)
             }
@@ -68,7 +64,7 @@ struct OnBoarding3: View {
             Image(.blockedAppsMainScreen)
                 .resizable()
                 .scaledToFit()
-                .frame(height: .infinity, alignment: .center)
+                .frame(maxHeight: .infinity, alignment: .center)
                 .layoutPriority(1)
                 .padding()
             Spacer()
@@ -101,9 +97,8 @@ struct OnBoarding3: View {
             try await ScreenTimeMonitorService.requestAuthorization()
             advance()
         } catch {
-            // A denial is permanent for the app — iOS never re-prompts. Settings
-            // is the only way forward, so the alert offers that rather than
-            // leaving onboarding stuck on this step.
+            // App blocking requires authorization. Explain the failure and
+            // offer Settings without automatically opening another prompt.
             authError = error.localizedDescription
         }
     }

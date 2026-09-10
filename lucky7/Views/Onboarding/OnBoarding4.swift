@@ -14,7 +14,7 @@ import FamilyControls
 /// `FamilyActivityPicker` shows nothing without that authorization.
 ///
 /// Deliberately does NOT use `OnboardingScreenTemplate`:
-/// - no progress bar and no back button — this is the commit point, the user
+/// - no back button — this is the commit point, the user
 ///   already granted Screen Time and there is nothing to go back to
 /// - the title and the picker live in two SEPARATE cards, so the picker gets
 ///   the whole remaining height instead of sharing one padded container
@@ -32,24 +32,24 @@ struct OnBoarding4: View {
     #endif
 
     var body: some View {
-        ZStack {
-            background
+        VStack(spacing: 12) {
+            OnboardingProgressHeader(step: 4)
+            titleCard
+            pickerCard
 
             VStack(spacing: 12) {
-                titleCard
-                pickerCard
-
                 Text(footerText)
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(.white)
-                    .padding(.top, 4)
-
                 continueButton
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 24)
+            .padding(.top, 16)
             .padding(.bottom, 20)
+            .background(Color("CanvasBlue").ignoresSafeArea(edges: .bottom))
         }
+        .padding(.horizontal, 20)
+        .padding(.top, 24)
+        .background { background }
         .navigationBarBackButtonHidden()
         .toolbar(.hidden, for: .navigationBar)
     }
