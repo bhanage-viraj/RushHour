@@ -43,3 +43,6 @@ fastlane/test_output
 
 # Misc
 *.log
+
+# Private signing certificates
+*.p12

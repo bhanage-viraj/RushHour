@@ -321,49 +321,66 @@ struct SessionAnalytics: View {
                     .padding(.horizontal, 10)
 
                 if savedSnapshots.isEmpty {
-                    // No photos → keep this compact so the card doesn't reserve empty space.
-                    Text("No activity snapshots added for this session.")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(.gray)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 8)
+                    snapshotsEmptyLabel
                 } else {
-                    // Show only the photos that exist — each keeps its third-of-the-row
-                    // size, left-aligned, with no grey placeholder filling empty slots.
-                    GeometryReader { geo in
-                        let tile = (geo.size.width - 24) / 3   // two 12pt gaps → same size as a full 3-up row
-                        HStack(spacing: 12) {
-                            ForEach(Array(savedSnapshots.enumerated()), id: \.offset) { index, image in
-                                // A fixed-size clear box owns the layout, so a landscape photo
-                                // can never stretch the row — the image just fills it and crops.
-                                Color.clear
-                                    .frame(width: tile, height: 140)
-                                    .overlay {
-                                        Image(uiImage: image)
-                                            .resizable()
-                                            .scaledToFill()
-                                    }
-                                    .clipShape(RoundedRectangle(cornerRadius: 16))
-                                    .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.black, lineWidth: 2))
-                                    .contentShape(RoundedRectangle(cornerRadius: 16))
-                                    .accessibilityLabel("Activity snapshot \(index + 1)")
-                                    .accessibilityHint("Opens snapshot full screen")
-                                    .accessibilityAddTraits(.isButton)
-                                    .onTapGesture {
-                                        fullscreenSnapshot = FullscreenSnapshot(id: index)
-                                    }
-                            }
-                            Spacer(minLength: 0)
-                        }
-                    }
-                    .frame(height: 140)
-                    .padding(.top, 10)
+                    snapshotRow
                 }
             }
             .padding(24)
             .padding(.bottom, 16) // clearance above the bottom checkerboard strip
         }
+    }
+
+    // No photos → keep this compact so the card doesn't reserve empty space.
+    private var snapshotsEmptyLabel: some View {
+        Text("No activity snapshots added for this session.")
+            .font(.system(size: 14, weight: .medium))
+            .foregroundColor(.gray)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+            .padding(.top, 8)
+    }
+
+    // Show only the photos that exist — each keeps its third-of-the-row
+    // size, left-aligned, with no grey placeholder filling empty slots.
+    //
+    // Kept OUT of `detailCard` on purpose: folded into that one chained
+    // expression it pushed Swift's type-checker past its per-expression time
+    // limit, which broke SwiftUI previews across the module ("unable to
+    // type-check this expression in reasonable time"). Small views = fast solve.
+    private var snapshotRow: some View {
+        GeometryReader { geo in
+            let tile = (geo.size.width - 24) / 3   // two 12pt gaps → same size as a full 3-up row
+            HStack(spacing: 12) {
+                ForEach(Array(savedSnapshots.enumerated()), id: \.offset) { index, image in
+                    snapshotTile(image: image, index: index, width: tile)
+                }
+                Spacer(minLength: 0)
+            }
+        }
+        .frame(height: 140)
+        .padding(.top, 10)
+    }
+
+    // A fixed-size clear box owns the layout, so a landscape photo
+    // can never stretch the row — the image just fills it and crops.
+    private func snapshotTile(image: UIImage, index: Int, width: CGFloat) -> some View {
+        Color.clear
+            .frame(width: width, height: 140)
+            .overlay {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.black, lineWidth: 2))
+            .contentShape(RoundedRectangle(cornerRadius: 16))
+            .accessibilityLabel("Activity snapshot \(index + 1)")
+            .accessibilityHint("Opens snapshot full screen")
+            .accessibilityAddTraits(.isButton)
+            .onTapGesture {
+                fullscreenSnapshot = FullscreenSnapshot(id: index)
+            }
     }
 
     private var deleteButton: some View {

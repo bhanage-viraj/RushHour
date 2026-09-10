@@ -16,8 +16,7 @@ struct OnBoarding1: View {
         NavigationStack(path: $path) {
             OnboardingScreenTemplate(
                 step: 1,
-                onContinue: { path.append(2) },
-                onGoNext: { path.append(2) }
+                onContinue: { path.append(2) }
             ) {
                 mainContent
             }
@@ -26,7 +25,9 @@ struct OnBoarding1: View {
                 case 2:
                     OnBoarding2(path: $path)
                 case 3:
-                    OnBoarding3(path: $path, onComplete: onComplete, onDone: onComplete)
+                    OnBoarding3(path: $path)
+                case 4:
+                    OnBoarding4(onDone: onComplete)
                 default:
                     EmptyView()
                 }

@@ -14,9 +14,7 @@ struct OnBoarding2: View {
         OnboardingScreenTemplate(
             step: 2,
             onContinue: { path.append(3) },
-            onBack: goBack,
-            onGoPrevious: goBack,
-            onGoNext: { path.append(3) }
+            onBack: goBack
         ) {
             mainContent
         }
