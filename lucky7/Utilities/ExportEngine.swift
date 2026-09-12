@@ -832,6 +832,29 @@ final class ExportEngine {
         }
 
         func addMetadata(startY: CGFloat) {
+            let logoWidth = unit * WrapOverlayLayout.logoWidthRatio
+            let logoHeight = unit * WrapOverlayLayout.logoArtworkHeightRatio
+            let logoFrameHeight = unit * WrapOverlayLayout.logoFrameHeightRatio
+            let logo = CALayer()
+            // Rasterize the vector asset at export resolution, not its small preview size.
+            let logoSize = CGSize(width: logoWidth, height: logoHeight)
+            let logoFormat = UIGraphicsImageRendererFormat()
+            logoFormat.scale = 1
+            logoFormat.opaque = false
+            logo.contents = UIGraphicsImageRenderer(size: logoSize, format: logoFormat).image { _ in
+                UIImage(named: WrapOverlayLayout.logoAssetName)?.draw(
+                    in: CGRect(origin: .zero, size: logoSize)
+                )
+            }.cgImage
+            logo.contentsGravity = .resizeAspect
+            logo.frame = CGRect(
+                x: (renderSize.width - logoWidth) / 2,
+                y: startY + (logoFrameHeight - logoHeight) / 2,
+                width: logoWidth,
+                height: logoHeight
+            )
+            layer.addSublayer(logo)
+            let titleY = startY + logoFrameHeight + unit * WrapOverlayLayout.logoSpacingRatio
             let titleWidth = renderSize.width * WrapOverlayLayout.titleWidthRatio
             let titleLayout = fittedHeaderLayout(
                 overlay.header,
@@ -845,13 +868,13 @@ final class ExportEngine {
             layer.addSublayer(textLayer(
                 titleLayout.text,
                 font: titleLayout.font,
-                frame: CGRect(x: titleX, y: startY, width: titleWidth, height: titleHeight)
+                frame: CGRect(x: titleX, y: titleY, width: titleWidth, height: titleHeight)
             ))
 
             let durationWidth = renderSize.width * WrapOverlayLayout.durationWidthRatio
             let durationFont = fittedDurationFont(maxWidth: durationWidth)
             let durationHeight = durationFont.pointSize * WrapOverlayLayout.lineHeightRatio
-            let durationY = startY + titleHeight
+            let durationY = titleY + titleHeight
                 + unit * WrapOverlayLayout.contentSpacingRatio
             layer.addSublayer(textLayer(
                 overlay.duration,
@@ -879,7 +902,7 @@ final class ExportEngine {
                     width: titleWidth,
                     height: dateHeight
                 ),
-                alpha: 0.70
+                alpha: 0.90
             ))
         }
 

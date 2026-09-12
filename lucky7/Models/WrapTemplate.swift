@@ -24,11 +24,11 @@ enum WrapTemplate: String, CaseIterable, Identifiable, Sendable {
     var accessibilityDescription: String {
         switch self {
         case .styled:
-            return "Video with session title, focus duration, and date"
+            return "Video with Rush Hour logo, session title, focus duration, and date"
         case .clean:
             return "Video without text"
         case .transparent:
-            return "Transparent session stats image"
+            return "Transparent Rush Hour logo and session stats image"
         }
     }
 
@@ -45,12 +45,17 @@ struct WrapShareMetadata: Sendable {
 /// Shared proportions from the canonical Figma Wrapped frame. Both the SwiftUI preview
 /// and the Core Animation exporter use these values so saved media matches the screen.
 enum WrapOverlayLayout {
+    static let logoAssetName = "WrapRushHourLogo"
+    static let logoWidthRatio: CGFloat = 0.25
+    static let logoArtworkHeightRatio: CGFloat = 0.25 * 30 / 91
+    static let logoFrameHeightRatio: CGFloat = 0.050
+    static let logoSpacingRatio: CGFloat = 0.033
     static let titleFontRatio: CGFloat = 0.041
     static let durationFontRatio: CGFloat = 0.145
     static let dateFontRatio: CGFloat = 0.035
     static let titleWidthRatio: CGFloat = 0.61
     static let durationWidthRatio: CGFloat = 0.76
-    static let styledTopRatio: CGFloat = 0.054
+    static let styledTopRatio: CGFloat = 0.050
     static let contentSpacingRatio: CGFloat = 0.010
 
     static let transparentBadgeTopRatio: CGFloat = 0.043

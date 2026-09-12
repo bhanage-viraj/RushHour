@@ -484,29 +484,41 @@ struct WrapMetadataOverlay: View {
             maxWidth: width * WrapOverlayLayout.durationWidthRatio
         )
 
-        VStack(spacing: unit * WrapOverlayLayout.contentSpacingRatio) {
-            Text(titleLayout.text)
-                .font(gothic(titleLayout.fontSize))
-                .multilineTextAlignment(.center)
-                .lineSpacing(titleLayout.fontSize * (WrapOverlayLayout.lineHeightRatio - 1))
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(width: titleWidth)
+        VStack(spacing: unit * WrapOverlayLayout.logoSpacingRatio) {
+            Image(WrapOverlayLayout.logoAssetName)
+                .resizable()
+                .scaledToFit()
+                .frame(
+                    width: unit * WrapOverlayLayout.logoWidthRatio,
+                    height: unit * WrapOverlayLayout.logoArtworkHeightRatio
+                )
+                .frame(height: unit * WrapOverlayLayout.logoFrameHeightRatio)
+                .accessibilityLabel("Rush Hour")
 
-            Text(metadata.duration)
-                .font(gothic(durationSize))
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
-                .frame(width: width * WrapOverlayLayout.durationWidthRatio)
-
-            if !metadata.date.isEmpty {
-                Text(metadata.date)
-                    .font(.system(
-                        size: unit * WrapOverlayLayout.dateFontRatio,
-                        weight: .regular
-                    ))
-                    .lineLimit(1)
-                    .opacity(0.70)
+            VStack(spacing: unit * WrapOverlayLayout.contentSpacingRatio) {
+                Text(titleLayout.text)
+                    .font(gothic(titleLayout.fontSize))
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(titleLayout.fontSize * (WrapOverlayLayout.lineHeightRatio - 1))
+                    .fixedSize(horizontal: false, vertical: true)
                     .frame(width: titleWidth)
+
+                Text(metadata.duration)
+                    .font(gothic(durationSize))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .frame(width: width * WrapOverlayLayout.durationWidthRatio)
+
+                if !metadata.date.isEmpty {
+                    Text(metadata.date)
+                        .font(.system(
+                            size: unit * WrapOverlayLayout.dateFontRatio,
+                            weight: .regular
+                        ))
+                        .lineLimit(1)
+                        .opacity(0.90)
+                        .frame(width: titleWidth)
+                }
             }
         }
     }
