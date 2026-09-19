@@ -69,26 +69,25 @@ struct MonitorScreen: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                Color("CanvasBlue")
-                    .ignoresSafeArea()
+            VStack(spacing: 0) {
+                header
 
-                Image("PatternBackground")
-                    .resizable()
-                    .scaledToFill()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .ignoresSafeArea()
-                    .offset(y: 10)
-
-                VStack(spacing: 0) {
-                    header
-
-                    if monthGroups.isEmpty {
-                        emptyState
-                    } else {
-                        feed
-                    }
+                if monthGroups.isEmpty {
+                    emptyState
+                } else {
+                    feed
                 }
+            }
+            .background {
+                Color("CanvasBlue")
+                    .overlay {
+                        Image("PatternBackground")
+                            .resizable()
+                            .scaledToFill()
+                    }
+                    .clipped()
+                    .ignoresSafeArea()
+                    .accessibilityHidden(true)
             }
             .overlay {
                 if weeklyNotReady {
@@ -123,6 +122,7 @@ struct MonitorScreen: View {
                 Image(systemName: "gearshape.fill")
                     .font(.system(size: 19))
                     .foregroundColor(.white)
+                    .frame(width: 44, height: 44)
             }
             .accessibilityLabel("Settings")
             .accessibilityHint("Opens app settings")
@@ -142,13 +142,14 @@ struct MonitorScreen: View {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 19, weight: .bold))
                     .foregroundColor(.white)
+                    .frame(width: 44, height: 44)
             }
             .accessibilityLabel("Search sessions")
             .accessibilityHint("Search by title or date")
             .accessibilityInputLabels(["search", "find session"])
         }
         .padding(.horizontal, 24)
-        .padding(.top, 36)
+        .padding(.top, 8)
         .padding(.bottom, 20)
     }
 

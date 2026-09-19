@@ -22,229 +22,40 @@ enum VideoOrientationHelper {
         return CGSize(width: abs(transformedRect.width), height: abs(transformedRect.height))
     }
 
-    static func currentInterfaceOrientation() async -> UIInterfaceOrientation {
-        // Always access UIApplication/UIScene on the main actor.
-        return await MainActor.run { () -> UIInterfaceOrientation in
-            interfaceOrientationFromApplication()
+    /// Preview policy is portrait for both cameras, independent of recording orientation.
+    /// Changing only values that differ avoids reconfiguring the preview on every layout.
+    static func configurePortraitPreview(_ connection: AVCaptureConnection, mirrored: Bool) {
+        if connection.isVideoOrientationSupported, connection.videoOrientation != .portrait {
+            connection.videoOrientation = .portrait
+        }
+        if connection.automaticallyAdjustsVideoMirroring {
+            connection.automaticallyAdjustsVideoMirroring = false
+        }
+        if connection.isVideoMirroringSupported, connection.isVideoMirrored != mirrored {
+            connection.isVideoMirrored = mirrored
         }
     }
 
-    static func currentRecordingOrientationSync() -> UIInterfaceOrientation {
-        if Thread.isMainThread {
-            return physicalRecordingOrientation()
-                ?? recordingOrientation(from: interfaceOrientationFromApplication())
-        }
-        return DispatchQueue.main.sync {
-            physicalRecordingOrientation()
-                ?? recordingOrientation(from: interfaceOrientationFromApplication())
-        }
-    }
-
-    private static func interfaceOrientationFromApplication() -> UIInterfaceOrientation {
-        let scenes = UIApplication.shared.connectedScenes
-        let windowScenes = scenes.compactMap { $0 as? UIWindowScene }
-        let active = windowScenes.first { $0.activationState == .foregroundActive }
-        guard let scene = active ?? windowScenes.first else { return .portrait }
-        if #available(iOS 26.0, *) {
-            return scene.effectiveGeometry.interfaceOrientation
-        }
-        return scene.interfaceOrientation
-    }
-
-    private static func physicalRecordingOrientation() -> UIInterfaceOrientation? {
-        switch UIDevice.current.orientation {
-        case .portrait:
-            return .portrait
-        case .portraitUpsideDown:
-            return isPhoneInterfaceIdiom() ? .portrait : .portraitUpsideDown
-        case .landscapeLeft:
-            return .landscapeRight
-        case .landscapeRight:
-            return .landscapeLeft
-        default:
-            return nil
-        }
-    }
-
-    static func recordingOrientation(from orientation: UIInterfaceOrientation) -> UIInterfaceOrientation {
-        guard orientation != .unknown else { return .portrait }
-
-        // iPhone does not advertise portrait-upside-down in Info.plist. If UIKit briefly reports
-        // that stale orientation at the first camera frame, encoding it would make the raw clip
-        // and final wrap upside down on affected devices.
-        if isPhoneInterfaceIdiom(), orientation == .portraitUpsideDown {
-            return .portrait
-        }
-
-        return orientation
-    }
-
-    static func orientationName(_ orientation: UIInterfaceOrientation) -> String {
-        switch orientation {
-        case .portrait: return "portrait"
-        case .portraitUpsideDown: return "portraitUpsideDown"
-        case .landscapeLeft: return "landscapeLeft"
-        case .landscapeRight: return "landscapeRight"
-        case .unknown: return "unknown"
-        @unknown default: return "unknown(\(orientation.rawValue))"
-        }
-    }
-
-    private static func isPhoneInterfaceIdiom() -> Bool {
-        if Thread.isMainThread {
-            return UIDevice.current.userInterfaceIdiom == .phone
-        }
-        return DispatchQueue.main.sync {
-            UIDevice.current.userInterfaceIdiom == .phone
-        }
-    }
-
-    /// Keeps the camera preview aligned with the app interface. On iPhone the interface is
-    /// portrait-only, while the recording writer separately follows physical device orientation.
-    static func applyToPreviewConnection(_ connection: AVCaptureConnection) async {
-        let rawOrientation = await currentInterfaceOrientation()
-        let orientation = recordingOrientation(from: rawOrientation)
-        // Use `videoOrientation` instead of rotation angles.
-        // This avoids inverted mappings across iOS versions/devices.
-        if connection.isVideoOrientationSupported {
-            connection.videoOrientation = captureVideoOrientation(from: orientation)
-        }
-    }
-
-    static func rotationAngle(for orientation: UIInterfaceOrientation) -> CGFloat {
-        switch orientation {
-        // This mapping matches what users expect visually:
-        // holding phone upright (portrait) should produce an upright preview/video.
-        case .portrait: return 270
-        case .portraitUpsideDown: return 90
-        case .landscapeLeft: return 0
-        case .landscapeRight: return 180
-        default: return 270
-        }
-    }
-
-    static func captureVideoOrientation(from orientation: UIInterfaceOrientation) -> AVCaptureVideoOrientation {
-        switch orientation {
-        case .portrait: return .portrait
-        case .portraitUpsideDown: return .portraitUpsideDown
-        case .landscapeLeft: return .landscapeLeft
-        case .landscapeRight: return .landscapeRight
-        default: return .portrait
-        }
-    }
-
-    /// Rotate/mirror sensor buffers so saved video is upright in the current interface orientation.
+    /// Rotate sensor pixels first, normalize the bounds, then mirror horizontally in
+    /// presentation coordinates. The coordinator supplies the camera-specific angle.
     static func writerTransform(
         bufferWidth: Int,
         bufferHeight: Int,
-        cameraPosition: AVCaptureDevice.Position
-    ) async -> CGAffineTransform {
-        let rawOrientation = await currentInterfaceOrientation()
-        let orientation = recordingOrientation(from: rawOrientation)
-        return writerTransform(
-            bufferWidth: bufferWidth,
-            bufferHeight: bufferHeight,
-            cameraPosition: cameraPosition,
-            orientation: orientation
+        rotationAngle: CGFloat,
+        mirrored: Bool
+    ) -> CGAffineTransform {
+        let rotation = CGAffineTransform(rotationAngle: rotationAngle * .pi / 180)
+        let bounds = CGRect(x: 0, y: 0, width: bufferWidth, height: bufferHeight).applying(rotation)
+        let normalized = rotation.concatenating(
+            CGAffineTransform(translationX: -bounds.minX, y: -bounds.minY)
+        )
+        guard mirrored else { return normalized }
+        return normalized.concatenating(
+            CGAffineTransform(a: -1, b: 0, c: 0, d: 1, tx: bounds.width, ty: 0)
         )
     }
+}
 
-    static func writerTransform(
-        bufferWidth: Int,
-        bufferHeight: Int,
-        cameraPosition: AVCaptureDevice.Position,
-        orientation: UIInterfaceOrientation
-    ) -> CGAffineTransform {
-        let width = CGFloat(bufferWidth)
-        let height = CGFloat(bufferHeight)
-        let isLandscapeBuffer = bufferWidth > bufferHeight
-
-        switch orientation {
-        case .portrait:
-            if isLandscapeBuffer {
-                return portraitUpFromLandscapeBuffer(
-                    width: width,
-                    height: height,
-                    cameraPosition: cameraPosition
-                )
-            }
-            if cameraPosition == .front {
-                return CGAffineTransform(scaleX: -1, y: 1).translatedBy(x: -width, y: 0)
-            }
-            return .identity
-
-        case .portraitUpsideDown:
-            if isLandscapeBuffer {
-                return portraitDownFromLandscapeBuffer(
-                    width: width,
-                    height: height,
-                    cameraPosition: cameraPosition
-                )
-            }
-            if cameraPosition == .front {
-                return CGAffineTransform(scaleX: -1, y: 1).translatedBy(x: -width, y: 0)
-                    .rotated(by: .pi)
-            }
-            return CGAffineTransform(rotationAngle: .pi)
-
-        case .landscapeLeft:
-            if cameraPosition == .front {
-                return CGAffineTransform(scaleX: -1, y: 1).translatedBy(x: -width, y: 0)
-            }
-            return .identity
-
-        case .landscapeRight:
-            if isLandscapeBuffer {
-                return CGAffineTransform(rotationAngle: .pi)
-            }
-            return CGAffineTransform(rotationAngle: .pi)
-
-        default:
-            return portraitUpFromLandscapeBuffer(
-                width: width,
-                height: height,
-                cameraPosition: cameraPosition
-            )
-        }
-    }
-
-    // MARK: - Portrait from landscape sensor buffer (typical iPhone)
-
-    private static func portraitUpFromLandscapeBuffer(
-        width: CGFloat,
-        height: CGFloat,
-        cameraPosition: AVCaptureDevice.Position
-    ) -> CGAffineTransform {
-        // Standard portrait fix for landscape sensor buffers:
-        // rotate +90° then translate up by -width.
-        let base = CGAffineTransform(rotationAngle: .pi / 2)
-            .translatedBy(x: 0, y: -width)
-
-        if cameraPosition == .front {
-            // Mirror for selfie camera after rotation.
-            return base
-                .scaledBy(x: -1, y: 1)
-                .translatedBy(x: -height, y: 0)
-        }
-
-        return base
-    }
-
-    private static func portraitDownFromLandscapeBuffer(
-        width: CGFloat,
-        height: CGFloat,
-        cameraPosition: AVCaptureDevice.Position
-    ) -> CGAffineTransform {
-        // Upside-down portrait: rotate -90° then translate left by -height.
-        let base = CGAffineTransform(rotationAngle: -.pi / 2)
-            .translatedBy(x: -height, y: 0)
-
-        if cameraPosition == .front {
-            return base
-                .scaledBy(x: -1, y: 1)
-                .translatedBy(x: -width, y: 0)
-        }
-
-        return base
-    }
+extension Notification.Name {
+    static let cameraConfigurationDidChange = Notification.Name("rushhour.cameraConfigurationDidChange")
 }

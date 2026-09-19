@@ -139,43 +139,31 @@ struct WrappedVideoScreen: View {
     // MARK: - Body
 
     var body: some View {
-        ZStack {
-            Color.wrappedWatchBlue
-                .ignoresSafeArea()
+        VStack(spacing: 0) {
+            topBar
+                .frame(height: 48)
 
-            if usesPortraitWatchLayout {
-                portraitWatchBackground
-            } else {
-                Image("PatternBackground")
-                    .resizable()
-                    .scaledToFill()
-                    .ignoresSafeArea()
-                    .offset(y: -30)
-            }
-
-            VStack(spacing: 0) {
-                topBar
-                    .frame(height: 48)
-
-                if usesPortraitWatchLayout {
-                    mediaCard
-                        .padding(.horizontal, 20)
-                        .padding(.top, 17)
-                        .layoutPriority(1)
-
-                    Spacer(minLength: 16)
-                } else {
-                    Spacer(minLength: 16)
-
-                    mediaCard
-                        .padding(.horizontal, 20)
-                        .layoutPriority(1)
-
-                    Spacer(minLength: 16)
-                }
-            }
+            mediaCard
+                .padding(.horizontal, 20)
+                .padding(.top, 17)
+                .padding(.bottom, 16)
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background {
+            Color.wrappedWatchBlue
+                .overlay {
+                    if usesPortraitWatchLayout {
+                        portraitWatchBackground
+                    } else {
+                        Image("PatternBackground")
+                            .resizable()
+                            .scaledToFill()
+                    }
+                }
+                .clipped()
+                .ignoresSafeArea()
+                .accessibilityHidden(true)
+        }
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
         .hidesFloatingTabBar()
@@ -324,15 +312,17 @@ struct WrappedVideoScreen: View {
     }
 
     private var mediaCard: some View {
-        Group {
-            if usesPortraitWatchLayout {
-                mediaCardContent
-                    .frame(width: Self.portraitCardSize.width, height: Self.portraitCardSize.height)
-            } else {
-                mediaCardContent
-                    .aspectRatio(displayedMediaAspectRatio, contentMode: .fit)
-                    .frame(maxWidth: 680, maxHeight: .infinity)
-            }
+        GeometryReader { proxy in
+            let aspectRatio = usesPortraitWatchLayout
+                ? Self.portraitCardSize.width / Self.portraitCardSize.height
+                : displayedMediaAspectRatio
+            let maximumWidth = usesPortraitWatchLayout ? Self.portraitCardSize.width : 680
+            let width = max(0, min(maximumWidth, proxy.size.width, proxy.size.height * aspectRatio))
+
+            mediaCardContent
+                .frame(width: width, height: width / aspectRatio)
+                .frame(maxWidth: .infinity, maxHeight: .infinity,
+                       alignment: usesPortraitWatchLayout ? .top : .center)
         }
     }
 

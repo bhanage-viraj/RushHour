@@ -20,23 +20,28 @@ struct SettingsScreen: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                Color("CanvasBlue").ignoresSafeArea()
-                Image("PatternBackground")
-                    .resizable()
-                    .scaledToFill()
-                    .ignoresSafeArea()
-                    .accessibilityDecorative()
+            VStack(spacing: 0) {
+                header
 
-                VStack(spacing: 0) {
-                    header
-
+                ScrollView {
                     settingsCard
                         .padding(.horizontal, 20)
                         .padding(.top, 28)
-
-                    Spacer()
+                        .padding(.bottom, 20)
                 }
+                .scrollBounceBehavior(.basedOnSize)
+            }
+            .background {
+                // Decorative images must not determine the screen's layout size.
+                Color("CanvasBlue")
+                    .overlay {
+                        Image("PatternBackground")
+                            .resizable()
+                            .scaledToFill()
+                    }
+                    .clipped()
+                    .ignoresSafeArea()
+                    .accessibilityHidden(true)
             }
             .navigationBarBackButtonHidden(true)
             .toolbar(.hidden, for: .navigationBar)
@@ -69,6 +74,7 @@ struct SettingsScreen: View {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 20, weight: .bold))
                         .foregroundStyle(.white)
+                        .frame(width: 44, height: 44)
                 }
                 .accessibilityLabel("Back")
                 .accessibilityInputLabels(["back", "close settings"])

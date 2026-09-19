@@ -27,8 +27,6 @@ struct ReasonFormView: View {
         .padding(.top, 24)
         .padding(.bottom, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // keep the card steady — the keyboard covers the buttons instead of squeezing everything up
-        .ignoresSafeArea(.keyboard, edges: .bottom)
     }
 
     private var reasonCard: some View {

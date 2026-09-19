@@ -26,6 +26,8 @@ final class TimelapseManager: NSObject {
     private let writerQueue = DispatchQueue(label: "com.lucky7.timelapse.writer")
 
     private var videoOutput: AVCaptureVideoDataOutput?
+    // Session-queue intent prevents a media-services reset from reviving an idle camera.
+    private var cameraShouldRun = false
     private var assetWriter: AVAssetWriter?
     private var writerInput: AVAssetWriterInput?
     private var pixelBufferAdaptor: AVAssetWriterInputPixelBufferAdaptor?
@@ -63,8 +65,9 @@ final class TimelapseManager: NSObject {
     private var recordingStartWallSeconds: Double?
     private var totalPausedSeconds: Double = 0
     private var pauseBeganWallSeconds: Double?
-    private var configuredPosition: AVCaptureDevice.Position = .front
-    private var recordingOrientation: UIInterfaceOrientation = .portrait
+    @MainActor private var captureRotationCoordinator: AVCaptureDevice.RotationCoordinator?
+    // Writer-queue state: chosen at the first frame and retained across all segments.
+    private var recordingRotation: (angle: CGFloat, mirrored: Bool)?
     private var sampleBuffersReceived = 0
     private var loggedNotRecordingDrop = false
     private var loggedPausedDrop = false
@@ -83,6 +86,39 @@ final class TimelapseManager: NSObject {
 
     var captureSession: AVCaptureSession { session }
 
+    override init() {
+        super.init()
+        NotificationCenter.default.addObserver(self, selector: #selector(cameraRuntimeError(_:)), name: AVCaptureSession.runtimeErrorNotification, object: session)
+    }
+
+    deinit { NotificationCenter.default.removeObserver(self) }
+
+    @objc private func cameraRuntimeError(_ notification: Notification) {
+        guard let error = notification.userInfo?[AVCaptureSessionErrorKey] as? AVError else { return }
+        log("camera runtime error code=\(error.code.rawValue) message=\(error.localizedDescription)")
+        guard error.code == .mediaServicesWereReset else { return }
+        sessionQueue.async {
+            guard self.cameraShouldRun else { return }
+            self.prepareCaptureConnection()
+            self.session.startRunning()
+            self.log("camera recovered after media-services reset running=\(self.session.isRunning)")
+        }
+    }
+
+    private func prepareCaptureConnection() {
+        // Apply the same preview policy before startup, switching, and recovery commits.
+        for connection in session.connections where connection.videoPreviewLayer != nil {
+            guard let port = connection.inputPorts.first(where: { $0.mediaType == .video }),
+                  let input = port.input as? AVCaptureDeviceInput else { continue }
+            VideoOrientationHelper.configurePortraitPreview(connection, mirrored: input.device.position == .front)
+        }
+        guard let connection = videoOutput?.connection(with: .video) else { return }
+        if connection.automaticallyAdjustsVideoMirroring { connection.automaticallyAdjustsVideoMirroring = false }
+        if connection.isVideoMirroringSupported, connection.isVideoMirrored { connection.isVideoMirrored = false }
+        if connection.isVideoRotationAngleSupported(0), connection.videoRotationAngle != 0 { connection.videoRotationAngle = 0 }
+        log("capture connection angle=\(connection.videoRotationAngle) mirrored=\(connection.isVideoMirrored)")
+    }
+
     // MARK: - Setup
 
     func requestPermissionAndConfigure(completion: @escaping (Bool) -> Void) {
@@ -97,6 +133,8 @@ final class TimelapseManager: NSObject {
                     self.log("configuring camera: no existing input")
                     self.configureSession(position: .front, completion: completion)
                 } else {
+                    self.cameraShouldRun = true
+                    self.prepareCaptureConnection()
                     if !self.session.isRunning { self.session.startRunning() }
                     self.log("camera already configured inputs=\(self.session.inputs.count) outputs=\(self.session.outputs.count) running=\(self.session.isRunning)")
                     DispatchQueue.main.async { completion(true) }
@@ -118,15 +156,56 @@ final class TimelapseManager: NSObject {
         }
     }
 
-    func switchCamera() {
+    func switchCamera(completion: @escaping (Bool) -> Void) {
         sessionQueue.async {
-            let next: AVCaptureDevice.Position = self.currentPosition() == .front ? .back : .front
-            self.configureSession(position: next, completion: nil)
+            let started = ProcessInfo.processInfo.systemUptime
+            guard let previous = self.session.inputs.first as? AVCaptureDeviceInput else {
+                DispatchQueue.main.async { completion(false) }
+                return
+            }
+            let position: AVCaptureDevice.Position = previous.device.position == .front ? .back : .front
+            guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position),
+                  let input = try? AVCaptureDeviceInput(device: device) else {
+                DispatchQueue.main.async { completion(true) } // Previous camera remains usable.
+                return
+            }
+
+            // Keep the output and preview alive. Rebuilding the entire capture graph
+            // causes a long blank interval; only the camera input needs to change.
+            self.session.beginConfiguration()
+            self.session.removeInput(previous)
+            let switched = self.session.canAddInput(input)
+            if switched {
+                self.session.addInput(input)
+            } else if self.session.canAddInput(previous) {
+                self.session.addInput(previous)
+            }
+            let activeDevice = switched ? device : previous.device
+            self.prepareCaptureConnection()
+            self.session.commitConfiguration()
+            self.cameraShouldRun = true
+            if !self.session.isRunning { self.session.startRunning() }
+            self.applyActivePowerProfile(reason: "switchCamera")
+            let ready = !self.session.inputs.isEmpty
+            self.log("camera switch success=\(switched) durationMs=\(Int((ProcessInfo.processInfo.systemUptime - started) * 1000))")
+            DispatchQueue.main.async {
+                self.publishCameraDevice(activeDevice)
+                completion(ready)
+            }
         }
+    }
+
+    @MainActor private func publishCameraDevice(_ device: AVCaptureDevice) {
+        let coordinator = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: nil)
+        captureRotationCoordinator = coordinator
+        log("camera orientation ready os=\(UIDevice.current.systemVersion) camera=\(device.localizedName) position=\(device.position.rawValue) captureAngle=\(coordinator.videoRotationAngleForHorizonLevelCapture)")
+        NotificationCenter.default.post(name: .cameraConfigurationDidChange, object: session)
     }
 
     func startRunning() {
         sessionQueue.async {
+            self.cameraShouldRun = true
+            self.prepareCaptureConnection()
             guard !self.session.isRunning else { return }
             self.session.startRunning()
             self.log("camera startRunning running=\(self.session.isRunning)")
@@ -135,6 +214,8 @@ final class TimelapseManager: NSObject {
 
     func restartRunning() {
         sessionQueue.async {
+            self.cameraShouldRun = true
+            self.prepareCaptureConnection()
             self.log("camera restart requested runningBefore=\(self.session.isRunning)")
             if self.session.isRunning {
                 self.session.stopRunning()
@@ -146,6 +227,7 @@ final class TimelapseManager: NSObject {
 
     func stopRunning() {
         sessionQueue.async {
+            self.cameraShouldRun = false
             guard self.session.isRunning else { return }
             self.session.stopRunning()
             self.log("camera stopRunning")
@@ -237,7 +319,6 @@ final class TimelapseManager: NSObject {
     func startRecording(plannedSessionSeconds: TimeInterval, completion: ((Bool) -> Void)? = nil) {
         writerQueue.async {
             self.resetWriterState()
-            self.recordingOrientation = VideoOrientationHelper.currentRecordingOrientationSync()
             self.plannedSessionSeconds = max(plannedSessionSeconds, AppConstants.minimumPlannedSessionSeconds)
             self.captureIntervalSeconds = AppConstants.captureIntervalSeconds(plannedSessionSeconds: self.plannedSessionSeconds)
             let powerProfile = RecordingPowerProfile.recording(plannedSessionSeconds: self.plannedSessionSeconds)
@@ -270,7 +351,7 @@ final class TimelapseManager: NSObject {
                 self.log(
                     "startRecording ok raw=\(self.outputURL!.lastPathComponent) "
                         + "interval=\(String(format: "%.3f", self.captureIntervalSeconds)) "
-                        + "orientation=\(VideoOrientationHelper.orientationName(self.recordingOrientation))"
+                        + "orientation=pendingFirstFrame"
                 )
                 self.writerQueue.asyncAfter(deadline: .now() + .seconds(4)) {
                     guard self.isRecording, self.framesCaptured == 0, self.pendingStartCompletion != nil else { return }
@@ -460,7 +541,6 @@ final class TimelapseManager: NSObject {
             }
 
             self.session.addInput(input)
-            self.configuredPosition = position
 
             let output = AVCaptureVideoDataOutput()
             output.videoSettings = [
@@ -479,16 +559,11 @@ final class TimelapseManager: NSObject {
             self.session.addOutput(output)
             self.videoOutput = output
 
-            // Keep sample buffers in sensor orientation; AVAssetWriterInput.transform
-            // sets the correct portrait/landscape metadata on the saved file.
-            if let connection = output.connection(with: .video) {
-                let angle: CGFloat = 0
-                if connection.isVideoRotationAngleSupported(angle) {
-                    connection.videoRotationAngle = angle
-                }
-            }
+            // Only the writer applies recording rotation and mirroring.
+            self.prepareCaptureConnection()
 
             self.session.commitConfiguration()
+            self.cameraShouldRun = true
 
             if !self.session.isRunning {
                 self.session.startRunning()
@@ -496,7 +571,10 @@ final class TimelapseManager: NSObject {
 
             self.log("configure success position=\(position.rawValue) inputs=\(self.session.inputs.count) outputs=\(self.session.outputs.count) running=\(self.session.isRunning)")
             self.applyActivePowerProfile(reason: "configureSession")
-            DispatchQueue.main.async { completion?(true) }
+            DispatchQueue.main.async {
+                self.publishCameraDevice(device)
+                completion?(true)
+            }
         }
     }
 
@@ -547,15 +625,11 @@ final class TimelapseManager: NSObject {
         }
     }
 
-    private func currentPosition() -> AVCaptureDevice.Position {
-        guard let input = session.inputs.first as? AVCaptureDeviceInput else { return .front }
-        return input.device.position
-    }
-
     private func resetWriterState() {
         assetWriter = nil
         writerInput = nil
         pixelBufferAdaptor = nil
+        recordingRotation = nil
         isWriterReady = false
         hasWrittenFrame = false
         cameraFrameIndex = 0
@@ -734,11 +808,24 @@ final class TimelapseManager: NSObject {
 
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
         input.expectsMediaDataInRealTime = true
+        if recordingRotation == nil {
+            recordingRotation = DispatchQueue.main.sync { () -> (angle: CGFloat, mirrored: Bool)? in
+                guard let coordinator = self.captureRotationCoordinator,
+                      let device = coordinator.device else { return nil }
+                let angle = coordinator.videoRotationAngleForHorizonLevelCapture
+                guard angle.isFinite else { return nil }
+                return (angle, device.position == .front)
+            }
+        }
+        guard let recordingRotation else {
+            log("setupWriter waiting for camera orientation coordinator")
+            return false
+        }
         input.transform = VideoOrientationHelper.writerTransform(
             bufferWidth: width,
             bufferHeight: height,
-            cameraPosition: configuredPosition,
-            orientation: recordingOrientation
+            rotationAngle: recordingRotation.angle,
+            mirrored: recordingRotation.mirrored
         )
 
         let adaptor = AVAssetWriterInputPixelBufferAdaptor(
@@ -767,7 +854,7 @@ final class TimelapseManager: NSObject {
         if recordingStartWallSeconds == nil {
             recordingStartWallSeconds = ProcessInfo.processInfo.systemUptime
         }
-        log("setupWriter ok dimensions=\(width)x\(height) camera=\(configuredPosition.rawValue) orientationApplied=\(VideoOrientationHelper.orientationName(recordingOrientation))")
+        log("setupWriter ok dimensions=\(width)x\(height) angle=\(recordingRotation.angle) mirrored=\(recordingRotation.mirrored) transform=\(input.transform)")
         return true
     }
 

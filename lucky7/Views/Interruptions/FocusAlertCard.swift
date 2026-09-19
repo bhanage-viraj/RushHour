@@ -71,9 +71,10 @@ struct FocusAlertCard: View {
         }
         .padding(.vertical, 20)
         .padding(.horizontal, 24)
-        .frame(width: 354)
+        .frame(maxWidth: 354)
         .background(RoundedRectangle(cornerRadius: 24).fill(.white))
         .overlay(RoundedRectangle(cornerRadius: 24).strokeBorder(.black, lineWidth: 2))
+        .padding(.horizontal, 20)
         .accessibilityElement(children: .contain)
         .accessibilityAddTraits(.isModal)
     }
