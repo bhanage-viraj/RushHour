@@ -299,25 +299,38 @@ struct WeeklyAnalyticScreen: View {
     // MARK: - Header
 
     private var weekPickerBar: some View {
-        ZStack {
-            // Week range pill, centered.
-            HStack(spacing: 12) {
+        HStack(spacing: 8) {
+            Button { dismiss() } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundColor(.white)
+                    .frame(width: 44, height: 44)
+            }
+            .accessibilityLabel("Back")
+            .accessibilityInputLabels(["back", "go back"])
+
+            HStack(spacing: 0) {
                 Button { changeWeek(by: -1) } label: {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 12, weight: .bold))
+                        .frame(width: 44, height: 44)
                 }
                 .disabled(!canGoBack)
                 .opacity(canGoBack ? 1 : 0.35)
                 .accessibilityLabel("Previous week")
-                .accessibilityInputLabels(["previous week", "back"])
+                .accessibilityInputLabels(["previous week"])
 
                 Text(weekRangeLabel)
                     .font(.system(size: 14, weight: .semibold))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity)
                     .accessibilityHidden(true)
 
                 Button { changeWeek(by: 1) } label: {
                     Image(systemName: "chevron.right")
                         .font(.system(size: 12, weight: .bold))
+                        .frame(width: 44, height: 44)
                 }
                 .disabled(isAtCurrentWeek)
                 .opacity(isAtCurrentWeek ? 0.35 : 1)
@@ -325,24 +338,11 @@ struct WeeklyAnalyticScreen: View {
                 .accessibilityInputLabels(["next week", "forward"])
             }
             .foregroundColor(.white)
-            .padding(.horizontal, 18)
-            .padding(.vertical, 9)
+            .padding(4)
             .background(Capsule().fill(Color.black))
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Week selector")
             .accessibilityValue(weekRangeLabel)
-
-            // Back button, leading.
-            HStack {
-                Button { dismiss() } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 20, weight: .bold))
-                        .foregroundColor(.white)
-                }
-                .accessibilityLabel("Back")
-                .accessibilityInputLabels(["back", "go back"])
-                Spacer()
-            }
         }
     }
 
@@ -360,14 +360,6 @@ struct WeeklyAnalyticScreen: View {
     }
 
     var body: some View {
-            ZStack{
-                Color("CanvasBlue")
-                    .ignoresSafeArea()
-                
-                Image("PatternBackground")
-                    .ignoresSafeArea()
-                    .offset(y: 5)
-                
                 VStack(spacing: 0) {
                     weekPickerBar
                         .padding(.horizontal, 24)
@@ -384,6 +376,8 @@ struct WeeklyAnalyticScreen: View {
                                 .font(.custom("Special Gothic Expanded One", size: 14))
                             Text(totalSessionTimeText)
                                 .font(.custom("Special Gothic Expanded One", size: 50))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.65)
                         }
                         .foregroundStyle(.white)
                         
@@ -414,16 +408,20 @@ struct WeeklyAnalyticScreen: View {
                                                     .font(.system(size: 10))
                                                 Text(stat["value1"] ?? "")
                                                     .font(.custom("Special Gothic Expanded One", size: index < 1 ? 28 : 16))
+                                                    .lineLimit(1)
+                                                    .minimumScaleFactor(0.65)
                                             }
-                                            .frame(width: 156)
+                                            .frame(maxWidth: .infinity)
                                             
                                             VStack(alignment: .center){
                                                 Text(stat["title2"] ?? "")
                                                     .font(.system(size: 10))
                                                 Text(stat["value2"] ?? "")
                                                     .font(.custom("Special Gothic Expanded One", size: index < 1 ? 28 : 16))
+                                                    .lineLimit(1)
+                                                    .minimumScaleFactor(0.65)
                                             }
-                                            .frame(width: 156)
+                                            .frame(maxWidth: .infinity)
                                         }
                                         .padding(.bottom, 12)
                                     }
@@ -562,6 +560,16 @@ struct WeeklyAnalyticScreen: View {
                 .padding(.horizontal, 24)
                 .simultaneousGesture(weekSwipeGesture)
                 }
+            .background {
+                Color("CanvasBlue")
+                    .overlay {
+                        Image("PatternBackground")
+                            .resizable()
+                            .scaledToFill()
+                    }
+                    .clipped()
+                    .ignoresSafeArea()
+                    .accessibilityHidden(true)
             }
             .toolbar(.hidden, for: .navigationBar)
             .navigationBarBackButtonHidden(true)

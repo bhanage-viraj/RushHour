@@ -1058,12 +1058,13 @@ struct CameraPreview: UIViewRepresentable {
 
     func makeUIView(context: Context) -> PreviewView {
         let view = PreviewView()
-        view.previewLayer.session = session
+        view.setSession(session)
         view.previewLayer.videoGravity = .resizeAspectFill
         return view
     }
 
     func updateUIView(_ uiView: PreviewView, context: Context) {
+        uiView.setSession(session)
     }
 }
 
@@ -1080,16 +1081,75 @@ class PreviewView: UIView {
         layer as! AVCaptureVideoPreviewLayer
     }
 
+    private var connectionObservation: NSKeyValueObservation?
+    private var lastOrientationLog: String?
+
+    func setSession(_ session: AVCaptureSession) {
+        if previewLayer.session !== session {
+            previewLayer.session = session
+        }
+        updateOrientation()
+    }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        connectionObservation = previewLayer.observe(\.connection, options: [.new]) { [weak self] _, _ in
+            Task { @MainActor [weak self] in self?.updateOrientation() }
+        }
+        for name in [AVCaptureSession.didStartRunningNotification,
+                     AVCaptureSession.interruptionEndedNotification,
+                     UIApplication.didBecomeActiveNotification,
+                     .cameraConfigurationDidChange] {
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(cameraConnectionChanged(_:)), name: name, object: nil
+            )
+        }
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit { NotificationCenter.default.removeObserver(self) }
+
+    @objc private func cameraConnectionChanged(_ notification: Notification) {
+        // Session notifications can arrive on its background queue. Resolve the current
+        // connection on the main actor, rather than retaining a replaced connection.
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            if notification.name != UIApplication.didBecomeActiveNotification {
+                guard let session = notification.object as? AVCaptureSession,
+                      session === self.previewLayer.session else { return }
+            }
+            self.updateOrientation()
+        }
+    }
+
+    func updateOrientation() {
+        guard let connection = previewLayer.connection,
+              let port = connection.inputPorts.first(where: { $0.mediaType == .video }),
+              let input = port.input as? AVCaptureDeviceInput else { return }
+        let device = input.device
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        VideoOrientationHelper.configurePortraitPreview(connection, mirrored: device.position == .front)
+        CATransaction.commit()
+        let state = "preview camera=\(device.localizedName) angle=\(connection.videoRotationAngle) mirrored=\(connection.isVideoMirrored)"
+        if state != lastOrientationLog {
+            RecordingDiagnostics.log(state)
+            lastOrientationLog = state
+        }
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        updateOrientation()
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         previewLayer.frame = bounds
-        if let connection = previewLayer.connection {
-            // Preview follows the app interface; recording orientation is handled by the writer.
-            // Run it asynchronously on the main actor.
-            Task { @MainActor in
-                await VideoOrientationHelper.applyToPreviewConnection(connection)
-            }
-        }
+        updateOrientation()
     }
 }
 

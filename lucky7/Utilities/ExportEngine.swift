@@ -282,6 +282,7 @@ final class ExportEngine {
     /// app-background into ONE continuous raw clip, preserving the camera orientation. Passthrough
     /// (no re-encode) since every segment came from the same capture config. Returns the stitched
     /// URL + its measured duration so the caller can recompute a matching frame count.
+    /// Mismatched segment geometry is normalized per segment instead of passed through.
     func concatenateRawSegments(_ urls: [URL]) async -> (url: URL, durationSeconds: Double)? {
         guard !urls.isEmpty else { return nil }
 
@@ -291,25 +292,56 @@ final class ExportEngine {
         ) else { return nil }
 
         var cursor = CMTime.zero
-        var preferredTransform: CGAffineTransform?
+        var segments: [(range: CMTimeRange, size: CGSize, transform: CGAffineTransform)] = []
         for url in urls {
             let asset = AVURLAsset(url: url)
             do {
-                guard let src = try await asset.loadTracks(withMediaType: .video).first else { continue }
+                guard let src = try await asset.loadTracks(withMediaType: .video).first else { return nil }
                 let dur = try await asset.load(.duration)
-                guard CMTimeGetSeconds(dur) > 0 else { continue }
+                guard CMTimeGetSeconds(dur) > 0 else { return nil }
+                let size = try await src.load(.naturalSize)
+                let transform = try await src.load(.preferredTransform)
                 try track.insertTimeRange(CMTimeRange(start: .zero, duration: dur), of: src, at: cursor)
+                segments.append((CMTimeRange(start: cursor, duration: dur), size, transform))
                 cursor = CMTimeAdd(cursor, dur)
-                if preferredTransform == nil {
-                    preferredTransform = try? await src.load(.preferredTransform)
-                }
             } catch {
-                print("ExportEngine.concatenateRawSegments insert: \(error.localizedDescription)")
-                continue
+                RecordingDiagnostics.log("stitch read failed: \(error.localizedDescription)")
+                return nil
             }
         }
-        guard cursor > .zero else { return nil }
-        if let preferredTransform { track.preferredTransform = preferredTransform }
+        guard let first = segments.first else { return nil }
+        let needsNormalization = segments.contains { $0.size != first.size || $0.transform != first.transform }
+        var normalizedComposition: AVMutableVideoComposition?
+        if needsNormalization {
+            // Each segment owns its transform. Never apply the first segment's matrix
+            // to differently oriented pixels after an interruption or camera reset.
+            let firstBounds = CGRect(origin: .zero, size: first.size).applying(first.transform)
+            let renderSize = CGSize(width: abs(firstBounds.width).rounded(), height: abs(firstBounds.height).rounded())
+            let videoComposition = AVMutableVideoComposition()
+            videoComposition.renderSize = renderSize
+            videoComposition.frameDuration = CMTime(value: 1, timescale: CMTimeScale(AppConstants.wrappedOutputFPS))
+            videoComposition.instructions = segments.map { segment in
+                let bounds = CGRect(origin: .zero, size: segment.size).applying(segment.transform)
+                let scale = min(renderSize.width / bounds.width, renderSize.height / bounds.height)
+                let transform = segment.transform
+                    .concatenating(CGAffineTransform(translationX: -bounds.minX, y: -bounds.minY))
+                    .concatenating(CGAffineTransform(scaleX: scale, y: scale))
+                    .concatenating(CGAffineTransform(
+                        translationX: (renderSize.width - bounds.width * scale) / 2,
+                        y: (renderSize.height - bounds.height * scale) / 2
+                    ))
+                let layer = AVMutableVideoCompositionLayerInstruction(assetTrack: track)
+                layer.setTransform(transform, at: segment.range.start)
+                let instruction = AVMutableVideoCompositionInstruction()
+                instruction.timeRange = segment.range
+                instruction.layerInstructions = [layer]
+                return instruction
+            }
+            normalizedComposition = videoComposition
+        } else {
+            track.preferredTransform = first.transform
+        }
+        RecordingDiagnostics.log("stitch segments=\(segments.count) normalize=\(needsNormalization) firstSize=\(first.size) firstTransform=\(first.transform)")
 
         let outputURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("timelapse_stitched_\(UUID().uuidString).mp4")
@@ -317,9 +349,11 @@ final class ExportEngine {
             try? FileManager.default.removeItem(at: outputURL)
         }
 
-        guard let session = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetPassthrough) else {
+        let preset = needsNormalization ? AVAssetExportPresetHighestQuality : AVAssetExportPresetPassthrough
+        guard let session = AVAssetExportSession(asset: composition, presetName: preset) else {
             return nil
         }
+        session.videoComposition = normalizedComposition
         session.outputURL = outputURL
         session.outputFileType = .mp4
         session.shouldOptimizeForNetworkUse = true

@@ -63,10 +63,13 @@ final class SessionRecordingViewModel: ObservableObject {
     }
 
     func prepareCamera() {
+        guard !isConfiguringCamera else { return }
+        isConfiguringCamera = true
         log("prepareCamera")
         timelapseManager.requestPermissionAndConfigure { [weak self] granted in
             Task { @MainActor in
                 guard let self else { return }
+                self.isConfiguringCamera = false
                 self.cameraReady = granted
                 self.permissionDenied = !granted
                 self.log("prepareCamera result granted=\(granted)")
@@ -80,8 +83,20 @@ final class SessionRecordingViewModel: ObservableObject {
         }
     }
 
+    private var isStartingRecording = false
+    private var isConfiguringCamera = false
+
     func switchCamera() {
-        timelapseManager.switchCamera()
+        guard cameraReady, !isRecording, !isStartingRecording, !isConfiguringCamera else { return }
+        cameraReady = false
+        isConfiguringCamera = true
+        timelapseManager.switchCamera { [weak self] ready in
+            Task { @MainActor in
+                guard let self else { return }
+                self.isConfiguringCamera = false
+                self.cameraReady = ready
+            }
+        }
     }
 
     func stopCamera() {
@@ -132,7 +147,7 @@ final class SessionRecordingViewModel: ObservableObject {
 
     func startRecording(plannedSessionSeconds: TimeInterval, completion: ((Bool) -> Void)? = nil) {
         log("startRecording requested cameraReady=\(cameraReady) isRecording=\(isRecording) planned=\(plannedSessionSeconds)")
-        guard cameraReady else {
+        guard cameraReady, !isConfiguringCamera, !isStartingRecording else {
             lastError = "Camera is not ready yet."
             log("startRecording blocked: camera not ready")
             completion?(false)
@@ -155,9 +170,11 @@ final class SessionRecordingViewModel: ObservableObject {
         recordedWallClockSeconds = 0
         cancelHomePreviewIdleStop()
 
+        isStartingRecording = true
         timelapseManager.startRecording(plannedSessionSeconds: self.plannedSessionSeconds) { [weak self] started in
             Task { @MainActor in
                 guard let self else { return }
+                self.isStartingRecording = false
                 if started {
                     self.isRecording = true
                     self.isCapturePaused = false

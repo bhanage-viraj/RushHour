@@ -132,39 +132,25 @@ struct SessionAnalytics: View {
     // MARK: - Body
 
     var body: some View {
-        ZStack {
-            Color("CanvasBlue")
-                .ignoresSafeArea()
-
-            Image("PatternBackground")
-                .resizable()
-                .scaledToFill()
-                .ignoresSafeArea()
-                .offset(y: -30)
-
-            VStack {
-                HStack {
-                    Button(action: close) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 20, weight: .bold))
-                            .foregroundColor(.white)
-                            .frame(width: 44, height: 44)
-                            .contentShape(Rectangle())
-                    }
-                    .accessibilityLabel("Close")
-                    .accessibilityHint("Closes session analytics")
-                    .accessibilityInputLabels(["close", "done", "exit"])
-
-                    Spacer()
-
-                    shareButton
+        VStack(spacing: 0) {
+            HStack {
+                Button(action: close) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundColor(.white)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 10)
+                .accessibilityLabel("Close")
+                .accessibilityHint("Closes session analytics")
+                .accessibilityInputLabels(["close", "done", "exit"])
 
                 Spacer()
+
+                shareButton
             }
-            .zIndex(1) // keep the top bar tappable above the ScrollView
+            .padding(.horizontal, 20)
+            .padding(.top, 10)
 
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 24) {
@@ -172,15 +158,23 @@ struct SessionAnalytics: View {
                     detailCard
                 }
                 .padding(.horizontal, 20)
-                .padding(.bottom, 110)
-                .padding(.top, 24)
+                .padding(.vertical, 24)
             }
 
-            VStack {
-                Spacer()
-                deleteButton
-            }
-
+            deleteButton
+        }
+        .background {
+            Color("CanvasBlue")
+                .overlay {
+                    Image("PatternBackground")
+                        .resizable()
+                        .scaledToFill()
+                }
+                .clipped()
+                .ignoresSafeArea()
+                .accessibilityHidden(true)
+        }
+        .overlay {
             if showDeleteConfirm {
                 deleteConfirmation
             }
@@ -421,13 +415,13 @@ struct SessionAnalytics: View {
                 .onTapGesture { dismissDeleteConfirm() }
 
             VStack(spacing: 18) {
-                ZStack(alignment: .topTrailing) {
+                HStack(alignment: .top, spacing: 8) {
                     Text("Delete this Session")
                         .font(.custom("Special Gothic Expanded One", size: 22))
                         .foregroundColor(.black)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: .infinity)
-                        .padding(.horizontal, 8)
+                        .fixedSize(horizontal: false, vertical: true)
 
                     Button(action: dismissDeleteConfirm) {
                         Image(systemName: "xmark")
