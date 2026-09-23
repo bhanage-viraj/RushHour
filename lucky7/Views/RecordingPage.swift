@@ -952,7 +952,7 @@ private struct RecordingTrafficTimer: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .frame(width: lensDiameter, height: lensDiameter)
-                .clipShape(Circle())
+                .clipShape(RoundedRectangle(cornerRadius: lensDiameter * 0.18, style: .continuous))
                 .offset(y: wheelTop)
         }
         .frame(width: panelSize, height: panelSize)
