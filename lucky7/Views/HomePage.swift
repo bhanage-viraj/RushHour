@@ -565,7 +565,9 @@ private struct HomeTrafficTimer: View {
             (text: "MINUTES", center: CGPoint(x: 172.93, y: 130.26)),
             (text: "SECONDS", center: CGPoint(x: 284.19, y: 130.26))
         ]
-        static let colonCenters = [CGPoint(x: 119.04, y: 68), CGPoint(x: 229.04, y: 68)]
+        /// Special Gothic draws ":" this far below the text box center at 20pt.
+        /// The selected numeral's ink is centered, so the colon needs this lift.
+        static let colonOpticalLift: CGFloat = 1.96
     }
 
     private var timerHeight: CGFloat { timerWidth * HomeDesign.timer.height / HomeDesign.timer.width }
@@ -623,16 +625,36 @@ private struct HomeTrafficTimer: View {
                     .accessibilityHidden(true)
             }
 
-            ForEach(Array(Layout.colonCenters.enumerated()), id: \.offset) { _, center in
-                Text(":")
-                    .font(.custom("Special Gothic Expanded One", size: 20 * scale))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .position(x: center.x * scale, y: center.y * scale)
-                    .accessibilityHidden(true)
+            // Drawn after the top mask, which overflows into the gaps and
+            // would otherwise cover the separators.
+            HStack(spacing: 0) {
+                Color.clear.frame(width: slotSize.width, height: slotSize.height)
+                colon(scale: scale)
+                Color.clear.frame(width: slotSize.width, height: slotSize.height)
+                colon(scale: scale)
+                Color.clear.frame(width: slotSize.width, height: slotSize.height)
             }
+            .frame(width: slotGroupWidth, height: slotSize.height, alignment: .topLeading)
+            .offset(x: Layout.slotOrigin.x * scale, y: Layout.slotOrigin.y * scale)
+            .allowsHitTesting(false)
+
         }
         .frame(width: timerWidth, height: timerHeight)
+    }
+
+    /// Sits in the gap between two dials, optically centered on the selected numeral.
+    private func colon(scale: CGFloat) -> some View {
+        let dialCenterY = (Layout.dialOrigin.y + Layout.dialSize.height / 2) * scale
+        let slotCenterY = Layout.slotSize.height * scale / 2
+
+        return Text(":")
+            .font(.custom("Special Gothic Expanded One", size: 20 * scale))
+            .foregroundStyle(.white)
+            .lineLimit(1)
+            .fixedSize()
+            .offset(y: dialCenterY - slotCenterY - Layout.colonOpticalLift * scale)
+            .frame(width: Layout.slotSpacing * scale, height: Layout.slotSize.height * scale)
+            .accessibilityHidden(true)
     }
 
     private func dial(
@@ -651,19 +673,6 @@ private struct HomeTrafficTimer: View {
         )
 
         return ZStack(alignment: .topLeading) {
-            Image("HomeTrafficTimerSlotShadow")
-                .resizable()
-                .frame(
-                    width: Layout.slotShadowSize.width * scale,
-                    height: Layout.slotShadowSize.height * scale
-                )
-                .offset(
-                    x: Layout.slotShadowOrigin.x * scale,
-                    y: Layout.slotShadowOrigin.y * scale
-                )
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-
             RoundedRectangle(cornerRadius: Layout.slotCornerRadius * scale, style: .continuous)
                 .fill(
                     LinearGradient(
@@ -697,7 +706,23 @@ private struct HomeTrafficTimer: View {
                     y: Layout.dialOrigin.y * scale
                 )
         }
-        .frame(width: slotSize.width, height: slotSize.height)
+        .frame(width: slotSize.width, height: slotSize.height, alignment: .topLeading)
+        // The shadow is wider than the slot. Keeping it out of the ZStack
+        // stops it from shifting the boxes off the colon gaps.
+        .overlay(alignment: .topLeading) {
+            Image("HomeTrafficTimerSlotShadow")
+                .resizable()
+                .frame(
+                    width: Layout.slotShadowSize.width * scale,
+                    height: Layout.slotShadowSize.height * scale
+                )
+                .offset(
+                    x: Layout.slotShadowOrigin.x * scale,
+                    y: Layout.slotShadowOrigin.y * scale
+                )
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
     }
 }
 
