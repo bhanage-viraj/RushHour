@@ -45,7 +45,6 @@ struct OnBoarding4: View {
             }
             .padding(.top, 16)
             .padding(.bottom, 20)
-            .background(Color("CanvasBlue").ignoresSafeArea(edges: .bottom))
         }
         .padding(.horizontal, 20)
         .padding(.top, 24)
@@ -128,13 +127,18 @@ struct OnBoarding4: View {
         Button(action: finishOnboarding) {
             Text("CONTINUE")
                 .font(.system(size: 16, weight: .heavy))
-                .foregroundColor(.white)
+                .foregroundColor(.white.opacity(hasEnoughSelected ? 1 : 0.55))
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 20)
-                .background(Capsule().fill(Color.black))
+                .background {
+                    // Opaque canvas under the dimmed black keeps the dotted
+                    // background from showing through while the button is disabled.
+                    Capsule().fill(Color("CanvasBlue"))
+                    Capsule().fill(Color.black.opacity(hasEnoughSelected ? 1 : 0.45))
+                }
         }
+        .buttonStyle(.plain)
         .disabled(!hasEnoughSelected)
-        .opacity(hasEnoughSelected ? 1 : 0.5)
         .accessibilityLabel("Continue")
         .accessibilityHint(
             hasEnoughSelected
