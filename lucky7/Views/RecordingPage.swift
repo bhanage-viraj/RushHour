@@ -87,6 +87,33 @@ struct RecordingPage: View {
         let id = UUID()
     }
 
+    private var recordingStatusPill: some View {
+        HStack(spacing: 7) {
+            if sessionTimer.isRunning {
+                Circle()
+                    .fill(.white)
+                    .frame(width: 8, height: 8)
+                Text("Recording")
+            } else {
+                Image(systemName: "pause.fill")
+                    .font(.system(size: 10, weight: .bold))
+                Text("Paused")
+            }
+        }
+        .font(.system(size: 12, weight: .semibold))
+        .foregroundColor(.white)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 7)
+        .background(sessionTimer.isRunning ? Color.red : Color(white: 0.26), in: Capsule())
+        .animation(.easeInOut(duration: 0.2), value: sessionTimer.isRunning)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(sessionTimer.isRunning ? "Recording in progress" : "Recording paused")
+        .accessibilityValue(
+            "\(sessionRecording.capturedFrameCount) frames captured. \(AccessibilitySupport.spokenCountdown(hours: sessionTimer.hours, minutes: sessionTimer.minutes, seconds: sessionTimer.seconds))"
+        )
+        .accessibilityAddTraits(.updatesFrequently)
+    }
+
     var body: some View {
 
         ZStack {
@@ -143,7 +170,7 @@ struct RecordingPage: View {
                 .ignoresSafeArea()
             }
 
-            VStack {
+            VStack(spacing: 0) {
                 // COUNTDOWN — live remaining time in the traffic housing, with a soft
                 // rainbow glow BEHIND it (peeking out just below) while paused.
                 ZStack {
@@ -167,6 +194,11 @@ struct RecordingPage: View {
                     )
                 }
                 .padding(.top, 8)
+
+                if hasStarted {
+                    recordingStatusPill
+                        .padding(.top, 12)
+                }
 
                 Spacer()
 
@@ -275,42 +307,6 @@ struct RecordingPage: View {
                 .accessibilityLabel("Camera access required")
                 .accessibilityValue("Camera access is required to record your timelapse. Enable camera in Settings.")
             }
-
-            VStack {
-                if hasStarted {
-                    HStack(spacing: 7) {
-                        if sessionTimer.isRunning {
-                            Circle()
-                                .fill(.white)
-                                .frame(width: 8, height: 8)
-                            Text("Recording")
-                        } else {
-                            Image(systemName: "pause.fill")
-                                .font(.system(size: 10, weight: .bold))
-                            Text("Paused")
-                        }
-                    }
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 7)
-                    .background(sessionTimer.isRunning ? Color.red : Color(white: 0.26), in: Capsule())
-                    .animation(.easeInOut(duration: 0.2), value: sessionTimer.isRunning)
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel(sessionTimer.isRunning ? "Recording in progress" : "Recording paused")
-                    .accessibilityValue(
-                        "\(sessionRecording.capturedFrameCount) frames captured. \(AccessibilitySupport.spokenCountdown(hours: sessionTimer.hours, minutes: sessionTimer.minutes, seconds: sessionTimer.seconds))"
-                    )
-                    .accessibilityAddTraits(.updatesFrequently)
-                }
-
-                Spacer()
-            }
-            .padding(.top, 132)   // floating recording/paused indicator below the housing
-            .opacity(isExpanded ? 0 : 1)
-            .scaleEffect(isExpanded ? 0.98 : 1)
-            .blur(radius: isExpanded ? 5 : 0)
-            .animation(focusTransition, value: isExpanded)
 
             if showEndConfirm {
                 EndSessionConfirm(
