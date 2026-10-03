@@ -245,7 +245,7 @@ final class FocusViewModel: ObservableObject {
 
     func remainingSeconds(for distraction: Distraction) -> TimeInterval {
         guard let until = distraction.breakGrantedUntil else { return 0 }
-        return max(0, until.timeIntervalSince(now))
+        return max(0, until.timeIntervalSinceNow)
     }
 
     func persistSelection() {
