@@ -13,6 +13,7 @@
 //
 
 import AVFoundation
+import CoreImage
 import UIKit
 
 struct TimelapseStopResult {
@@ -68,6 +69,8 @@ final class TimelapseManager: NSObject {
     @MainActor private var captureRotationCoordinator: AVCaptureDevice.RotationCoordinator?
     // Writer-queue state: chosen at the first frame and retained across all segments.
     private var recordingRotation: (angle: CGFloat, mirrored: Bool)?
+    private let previewStillContext = CIContext(options: nil)
+    private var lastPreviewStillTime: CFTimeInterval = 0
     private var sampleBuffersReceived = 0
     private var loggedNotRecordingDrop = false
     private var loggedPausedDrop = false
@@ -885,6 +888,7 @@ final class TimelapseManager: NSObject {
     }
 
     private func appendFrame(from sampleBuffer: CMSampleBuffer) {
+        storePreviewStill(from: sampleBuffer)
         sampleBuffersReceived += 1
         if sampleBuffersReceived <= 3 {
             log("sample received #\(sampleBuffersReceived) isRecording=\(isRecording) paused=\(capturePaused) writerNil=\(assetWriter == nil)")
@@ -993,8 +997,42 @@ final class TimelapseManager: NSObject {
         backgroundTaskId = .invalid
     }
 
+    private func storePreviewStill(from sampleBuffer: CMSampleBuffer) {
+        let now = CACurrentMediaTime()
+        guard now - lastPreviewStillTime >= 0.2,
+              let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        lastPreviewStillTime = now
+        let source = CIImage(cvPixelBuffer: buffer)
+        let maxSide = max(source.extent.width, source.extent.height)
+        guard maxSide > 1 else { return }
+        let scale = 280 / maxSide
+        let small = source.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        let extent = small.extent.integral
+        guard extent.width > 1, extent.height > 1,
+              let cgImage = previewStillContext.createCGImage(small, from: extent) else { return }
+        PreviewFrameStore.shared.store(cgImage, for: session)
+    }
+
     private func log(_ message: String) {
         RecordingDiagnostics.log("Timelapse \(message)")
+    }
+}
+
+final class PreviewFrameStore {
+    static let shared = PreviewFrameStore()
+    private let lock = NSLock()
+    private var frames: [ObjectIdentifier: CGImage] = [:]
+
+    func store(_ image: CGImage, for session: AVCaptureSession) {
+        lock.lock()
+        frames[ObjectIdentifier(session)] = image
+        lock.unlock()
+    }
+
+    func image(for session: AVCaptureSession) -> CGImage? {
+        lock.lock()
+        defer { lock.unlock() }
+        return frames[ObjectIdentifier(session)]
     }
 }
 

@@ -1207,10 +1207,17 @@ class PreviewView: UIView {
         cover.clipsToBounds = true
         cover.contentMode = .scaleAspectFill
         cover.isUserInteractionEnabled = false
-        cover.backgroundColor = still == nil ? UIColor.black.withAlphaComponent(0.35) : .clear
+        if still == nil {
+            let frost = UIVisualEffectView(effect: UIBlurEffect(style: .regular))
+            frost.frame = cover.bounds
+            frost.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            frost.isUserInteractionEnabled = false
+            cover.addSubview(frost)
+        }
         host.addSubview(cover)
         switchCover = cover
 
+        guard still != nil else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         previewLayer.opacity = 0
@@ -1223,45 +1230,25 @@ class PreviewView: UIView {
     }
 
     private func blurredSwitchImage() -> UIImage? {
-        guard let source = capturePreviewStill() else { return nil }
-        guard let ciImage = CIImage(image: source) else { return source }
-        let blurred = ciImage
+        guard let session = previewLayer.session,
+              let cgImage = PreviewFrameStore.shared.image(for: session) else { return nil }
+        let angle = previewLayer.connection?.videoRotationAngle ?? 0
+        let mirrored = previewLayer.connection?.isVideoMirrored ?? false
+        var image = CIImage(cgImage: cgImage)
+        image = image.transformed(by: CGAffineTransform(translationX: -image.extent.midX, y: -image.extent.midY))
+        if abs(angle) > 0.5 {
+            image = image.transformed(by: CGAffineTransform(rotationAngle: -angle * .pi / 180))
+        }
+        if mirrored {
+            image = image.transformed(by: CGAffineTransform(scaleX: -1, y: 1))
+        }
+        image = image.transformed(by: CGAffineTransform(translationX: -image.extent.origin.x, y: -image.extent.origin.y))
+        let blurred = image
             .clampedToExtent()
-            .applyingGaussianBlur(sigma: 16)
-            .cropped(to: ciImage.extent)
-        guard let cgImage = Self.blurContext.createCGImage(blurred, from: ciImage.extent) else { return source }
-        return UIImage(cgImage: cgImage)
-    }
-
-    private func capturePreviewStill() -> UIImage? {
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        format.opaque = true
-        let size = CGSize(width: max(bounds.width / 4, 1), height: max(bounds.height / 4, 1))
-        let image = UIGraphicsImageRenderer(size: size, format: format).image { _ in
-            drawHierarchy(in: CGRect(origin: .zero, size: size), afterScreenUpdates: false)
-        }
-        return hasVisibleContent(image) ? image : nil
-    }
-
-    private func hasVisibleContent(_ image: UIImage) -> Bool {
-        guard let cgImage = image.cgImage else { return false }
-        var pixel = [UInt8](repeating: 0, count: 4)
-        let drawn = pixel.withUnsafeMutableBytes { buffer -> Bool in
-            guard let context = CGContext(
-                data: buffer.baseAddress,
-                width: 1,
-                height: 1,
-                bitsPerComponent: 8,
-                bytesPerRow: 4,
-                space: CGColorSpaceCreateDeviceRGB(),
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-            ) else { return false }
-            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: 1, height: 1))
-            return true
-        }
-        guard drawn else { return false }
-        return Int(pixel[0]) + Int(pixel[1]) + Int(pixel[2]) > 30
+            .applyingGaussianBlur(sigma: 14)
+            .cropped(to: image.extent)
+        guard let output = Self.blurContext.createCGImage(blurred, from: image.extent) else { return nil }
+        return UIImage(cgImage: output)
     }
 
     private func revealAfterCameraSwitch() {
