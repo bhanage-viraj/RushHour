@@ -6,6 +6,7 @@
 import SwiftUI
 import SwiftData
 import AVFoundation
+import CoreImage
 import UserNotifications
 import Combine
 
@@ -1081,9 +1082,12 @@ class PreviewView: UIView {
     private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
     private var rotationObservation: NSKeyValueObservation?
     private var lastOrientationLog: String?
+    private static let blurContext = CIContext(options: [.useSoftwareRenderer: false])
+
     private var switchCover: UIView?
     private var switchCovered = false
     private var switchCoverGeneration = 0
+    private var switchCoverStarted = Date()
 
     func setSession(_ session: AVCaptureSession) {
         if previewLayer.session !== session {
@@ -1188,19 +1192,76 @@ class PreviewView: UIView {
     private func coverForCameraSwitch() {
         switchCoverGeneration += 1
         switchCovered = true
+        switchCoverStarted = Date()
         let generation = switchCoverGeneration
         switchCover?.removeFromSuperview()
         switchCover = nil
-        guard let host = superview, bounds.width > 1, bounds.height > 1,
-              let snap = snapshotView(afterScreenUpdates: false) else { return }
-        snap.frame = host.convert(bounds, from: self)
-        snap.isUserInteractionEnabled = false
-        host.addSubview(snap)
-        switchCover = snap
+
+        // Freeze the current upright frame before the session swaps cameras.
+        // The live preview rotates sideways for a moment; hiding it keeps that
+        // turn out of the blur.
+        let still = blurredSwitchImage()
+        guard let host = superview, bounds.width > 1, bounds.height > 1 else { return }
+        let cover = UIImageView(image: still)
+        cover.frame = host.convert(bounds, from: self)
+        cover.clipsToBounds = true
+        cover.contentMode = .scaleAspectFill
+        cover.isUserInteractionEnabled = false
+        cover.backgroundColor = still == nil ? UIColor.black.withAlphaComponent(0.35) : .clear
+        host.addSubview(cover)
+        switchCover = cover
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        previewLayer.opacity = 0
+        CATransaction.commit()
+
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
             guard let self, self.switchCovered, self.switchCoverGeneration == generation else { return }
             self.revealAfterCameraSwitch()
         }
+    }
+
+    private func blurredSwitchImage() -> UIImage? {
+        guard let source = capturePreviewStill() else { return nil }
+        guard let ciImage = CIImage(image: source) else { return source }
+        let blurred = ciImage
+            .clampedToExtent()
+            .applyingGaussianBlur(sigma: 16)
+            .cropped(to: ciImage.extent)
+        guard let cgImage = Self.blurContext.createCGImage(blurred, from: ciImage.extent) else { return source }
+        return UIImage(cgImage: cgImage)
+    }
+
+    private func capturePreviewStill() -> UIImage? {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let size = CGSize(width: max(bounds.width / 4, 1), height: max(bounds.height / 4, 1))
+        let image = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            drawHierarchy(in: CGRect(origin: .zero, size: size), afterScreenUpdates: false)
+        }
+        return hasVisibleContent(image) ? image : nil
+    }
+
+    private func hasVisibleContent(_ image: UIImage) -> Bool {
+        guard let cgImage = image.cgImage else { return false }
+        var pixel = [UInt8](repeating: 0, count: 4)
+        let drawn = pixel.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(
+                data: buffer.baseAddress,
+                width: 1,
+                height: 1,
+                bitsPerComponent: 8,
+                bytesPerRow: 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else { return false }
+            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+            return true
+        }
+        guard drawn else { return false }
+        return Int(pixel[0]) + Int(pixel[1]) + Int(pixel[2]) > 30
     }
 
     private func revealAfterCameraSwitch() {
@@ -1208,22 +1269,36 @@ class PreviewView: UIView {
         switchCovered = false
         let generation = switchCoverGeneration
         updateOrientation()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
+        let elapsed = Date().timeIntervalSince(switchCoverStarted)
+        let hold = max(0.12, 0.55 - elapsed)
+        DispatchQueue.main.asyncAfter(deadline: .now() + hold) { [weak self] in
             guard let self, self.switchCoverGeneration == generation else { return }
             self.updateOrientation()
-            guard let cover = self.switchCover else { return }
+            let cover = self.switchCover
+            let hasStill = (cover as? UIImageView)?.image != nil
+            if hasStill {
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                self.previewLayer.opacity = 1
+                CATransaction.commit()
+            }
             UIView.animate(
-                withDuration: 0.32,
+                withDuration: 0.4,
                 delay: 0,
                 options: [.curveEaseInOut, .allowUserInteraction, .beginFromCurrentState]
             ) {
-                cover.alpha = 0
+                if hasStill {
+                    cover?.alpha = 0
+                } else {
+                    self.alpha = 1
+                }
             } completion: { _ in
                 guard self.switchCoverGeneration == generation else { return }
-                cover.removeFromSuperview()
-                if self.switchCover === cover {
+                cover?.removeFromSuperview()
+                if let cover, self.switchCover === cover {
                     self.switchCover = nil
                 }
+                self.previewLayer.opacity = 1
             }
         }
     }
