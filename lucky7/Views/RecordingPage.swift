@@ -1078,7 +1078,12 @@ class PreviewView: UIView {
     }
 
     private var connectionObservation: NSKeyValueObservation?
+    private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
+    private var rotationObservation: NSKeyValueObservation?
     private var lastOrientationLog: String?
+    private var switchCover: UIView?
+    private var switchCovered = false
+    private var switchCoverGeneration = 0
 
     func setSession(_ session: AVCaptureSession) {
         if previewLayer.session !== session {
@@ -1090,11 +1095,17 @@ class PreviewView: UIView {
     override init(frame: CGRect) {
         super.init(frame: frame)
         connectionObservation = previewLayer.observe(\.connection, options: [.new]) { [weak self] _, _ in
-            Task { @MainActor [weak self] in self?.updateOrientation() }
+            guard let self else { return }
+            if Thread.isMainThread {
+                self.updateOrientation()
+            } else {
+                DispatchQueue.main.async { [weak self] in self?.updateOrientation() }
+            }
         }
         for name in [AVCaptureSession.didStartRunningNotification,
                      AVCaptureSession.interruptionEndedNotification,
                      UIApplication.didBecomeActiveNotification,
+                     .cameraSwitchWillBegin,
                      .cameraConfigurationDidChange] {
             NotificationCenter.default.addObserver(
                 self, selector: #selector(cameraConnectionChanged(_:)), name: name, object: nil
@@ -1106,34 +1117,114 @@ class PreviewView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    deinit { NotificationCenter.default.removeObserver(self) }
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+        switchCover?.removeFromSuperview()
+    }
 
     @objc private func cameraConnectionChanged(_ notification: Notification) {
         // Session notifications can arrive on its background queue. Resolve the current
-        // connection on the main actor, rather than retaining a replaced connection.
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            if notification.name != UIApplication.didBecomeActiveNotification {
-                guard let session = notification.object as? AVCaptureSession,
-                      session === self.previewLayer.session else { return }
+        // connection on the main thread, rather than retaining a replaced connection.
+        // The switch cover has to run synchronously: deferring it lets the new camera
+        // draw a landscape frame before the snapshot is up.
+        if Thread.isMainThread {
+            handleCameraConnectionChange(notification)
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                self?.handleCameraConnectionChange(notification)
             }
-            self.updateOrientation()
+        }
+    }
+
+    private func handleCameraConnectionChange(_ notification: Notification) {
+        if notification.name != UIApplication.didBecomeActiveNotification {
+            guard let session = notification.object as? AVCaptureSession,
+                  session === previewLayer.session else { return }
+        }
+        if notification.name == .cameraSwitchWillBegin {
+            coverForCameraSwitch()
+            return
+        }
+        updateOrientation()
+        if notification.name == .cameraConfigurationDidChange {
+            revealAfterCameraSwitch()
         }
     }
 
     func updateOrientation() {
-        guard let connection = previewLayer.connection,
-              let port = connection.inputPorts.first(where: { $0.mediaType == .video }),
+        guard window != nil,
+              let port = previewLayer.connection?.inputPorts.first(where: { $0.mediaType == .video }),
               let input = port.input as? AVCaptureDeviceInput else { return }
         let device = input.device
+        if rotationCoordinator?.device !== device {
+            let coordinator = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: previewLayer)
+            rotationCoordinator = coordinator
+            rotationObservation = coordinator.observe(\.videoRotationAngleForHorizonLevelPreview, options: [.new]) { [weak self] _, _ in
+                if Thread.isMainThread {
+                    self?.updateOrientation()
+                } else {
+                    DispatchQueue.main.async { [weak self] in self?.updateOrientation() }
+                }
+            }
+        }
+        guard let coordinator = rotationCoordinator else { return }
+        let angle = VideoOrientationHelper.uprightPreviewAngle(from: coordinator)
+        applyPreviewRotation(angle, mirrored: device.position == .front)
+    }
+
+    private func applyPreviewRotation(_ angle: CGFloat, mirrored: Bool) {
+        guard let connection = previewLayer.connection else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        VideoOrientationHelper.configurePortraitPreview(connection, mirrored: device.position == .front)
+        VideoOrientationHelper.configurePortraitPreview(connection, rotationAngle: angle, mirrored: mirrored)
         CATransaction.commit()
-        let state = "preview camera=\(device.localizedName) angle=\(connection.videoRotationAngle) mirrored=\(connection.isVideoMirrored)"
+        let state = "preview camera angle=\(connection.videoRotationAngle) mirrored=\(connection.isVideoMirrored)"
         if state != lastOrientationLog {
             RecordingDiagnostics.log(state)
             lastOrientationLog = state
+        }
+    }
+
+    private func coverForCameraSwitch() {
+        switchCoverGeneration += 1
+        switchCovered = true
+        let generation = switchCoverGeneration
+        switchCover?.removeFromSuperview()
+        switchCover = nil
+        guard let host = superview, bounds.width > 1, bounds.height > 1,
+              let snap = snapshotView(afterScreenUpdates: false) else { return }
+        snap.frame = host.convert(bounds, from: self)
+        snap.isUserInteractionEnabled = false
+        host.addSubview(snap)
+        switchCover = snap
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            guard let self, self.switchCovered, self.switchCoverGeneration == generation else { return }
+            self.revealAfterCameraSwitch()
+        }
+    }
+
+    private func revealAfterCameraSwitch() {
+        guard switchCovered else { return }
+        switchCovered = false
+        let generation = switchCoverGeneration
+        updateOrientation()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
+            guard let self, self.switchCoverGeneration == generation else { return }
+            self.updateOrientation()
+            guard let cover = self.switchCover else { return }
+            UIView.animate(
+                withDuration: 0.32,
+                delay: 0,
+                options: [.curveEaseInOut, .allowUserInteraction, .beginFromCurrentState]
+            ) {
+                cover.alpha = 0
+            } completion: { _ in
+                guard self.switchCoverGeneration == generation else { return }
+                cover.removeFromSuperview()
+                if self.switchCover === cover {
+                    self.switchCover = nil
+                }
+            }
         }
     }
 
@@ -1145,6 +1236,9 @@ class PreviewView: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         previewLayer.frame = bounds
+        if let switchCover, let host = switchCover.superview {
+            switchCover.frame = host.convert(bounds, from: self)
+        }
         updateOrientation()
     }
 }
