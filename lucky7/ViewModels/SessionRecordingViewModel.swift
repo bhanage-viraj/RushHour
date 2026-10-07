@@ -44,8 +44,6 @@ final class SessionRecordingViewModel: ObservableObject {
     // Kept for final-export recovery and recap generation. Share styling never reads raw.
     private var retainedRawURL: URL?
     private var lastExportFrameCount: Int = 0
-    private static let homePreviewIdleNanoseconds: UInt64 = 45 * 1_000_000_000
-    private var homePreviewIdleTask: Task<Void, Never>?
 
     private struct PendingTitleExport {
         let title: String
@@ -107,6 +105,9 @@ final class SessionRecordingViewModel: ObservableObject {
         timelapseManager.startRunning()
     }
 
+    /// Keeps the live camera feed running on Home before a session starts.
+    /// The preview stays live while Home is visible; it is only stopped when Home
+    /// is hidden or the app leaves the foreground.
     func noteHomePreviewInteraction() {
         guard !isRecording, !isExporting else { return }
         log("homePreview interaction cameraReady=\(cameraReady)")
@@ -115,33 +116,11 @@ final class SessionRecordingViewModel: ObservableObject {
         } else {
             prepareCamera()
         }
-        scheduleHomePreviewIdleStop()
     }
 
     func stopHomePreview() {
-        cancelHomePreviewIdleStop()
         guard !isRecording, !isExporting else { return }
         log("homePreview stop")
-        timelapseManager.stopRunning()
-    }
-
-    private func scheduleHomePreviewIdleStop() {
-        homePreviewIdleTask?.cancel()
-        homePreviewIdleTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: Self.homePreviewIdleNanoseconds)
-            guard !Task.isCancelled else { return }
-            self?.stopHomePreviewAfterIdle()
-        }
-    }
-
-    private func cancelHomePreviewIdleStop() {
-        homePreviewIdleTask?.cancel()
-        homePreviewIdleTask = nil
-    }
-
-    private func stopHomePreviewAfterIdle() {
-        guard !isRecording, !isExporting else { return }
-        log("homePreview idle stop")
         timelapseManager.stopRunning()
     }
 
@@ -168,7 +147,6 @@ final class SessionRecordingViewModel: ObservableObject {
         statusMessage = "Recording…"
         self.plannedSessionSeconds = max(plannedSessionSeconds, 60)
         recordedWallClockSeconds = 0
-        cancelHomePreviewIdleStop()
 
         isStartingRecording = true
         timelapseManager.startRecording(plannedSessionSeconds: self.plannedSessionSeconds) { [weak self] started in
@@ -338,7 +316,6 @@ final class SessionRecordingViewModel: ObservableObject {
         isExporting = false
         titleExportRetryTask?.cancel()
         titleExportRetryTask = nil
-        cancelHomePreviewIdleStop()
         let persistedRawURL = rawClipURL
         finalVideoURL = nil
         rawClipURL = nil
