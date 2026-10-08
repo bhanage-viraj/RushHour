@@ -1262,23 +1262,16 @@ class PreviewView: UIView {
             guard let self, self.switchCoverGeneration == generation else { return }
             self.updateOrientation()
             let cover = self.switchCover
-            let hasStill = (cover as? UIImageView)?.image != nil
-            if hasStill {
-                CATransaction.begin()
-                CATransaction.setDisableActions(true)
-                self.previewLayer.opacity = 1
-                CATransaction.commit()
-            }
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            self.previewLayer.opacity = 1
+            CATransaction.commit()
             UIView.animate(
                 withDuration: 0.4,
                 delay: 0,
                 options: [.curveEaseInOut, .allowUserInteraction, .beginFromCurrentState]
             ) {
-                if hasStill {
-                    cover?.alpha = 0
-                } else {
-                    self.alpha = 1
-                }
+                cover?.alpha = 0
             } completion: { _ in
                 guard self.switchCoverGeneration == generation else { return }
                 cover?.removeFromSuperview()
