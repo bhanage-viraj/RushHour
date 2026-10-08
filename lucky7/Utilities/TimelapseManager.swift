@@ -13,6 +13,7 @@
 //
 
 import AVFoundation
+import CoreImage
 import UIKit
 
 struct TimelapseStopResult {
@@ -68,6 +69,8 @@ final class TimelapseManager: NSObject {
     @MainActor private var captureRotationCoordinator: AVCaptureDevice.RotationCoordinator?
     // Writer-queue state: chosen at the first frame and retained across all segments.
     private var recordingRotation: (angle: CGFloat, mirrored: Bool)?
+    private let previewStillContext = CIContext(options: nil)
+    private var lastPreviewStillTime: CFTimeInterval = 0
     private var sampleBuffersReceived = 0
     private var loggedNotRecordingDrop = false
     private var loggedPausedDrop = false
@@ -110,7 +113,13 @@ final class TimelapseManager: NSObject {
         for connection in session.connections where connection.videoPreviewLayer != nil {
             guard let port = connection.inputPorts.first(where: { $0.mediaType == .video }),
                   let input = port.input as? AVCaptureDeviceInput else { continue }
-            VideoOrientationHelper.configurePortraitPreview(connection, mirrored: input.device.position == .front)
+            let mirrored = input.device.position == .front
+            if connection.automaticallyAdjustsVideoMirroring {
+                connection.automaticallyAdjustsVideoMirroring = false
+            }
+            if connection.isVideoMirroringSupported, connection.isVideoMirrored != mirrored {
+                connection.isVideoMirrored = mirrored
+            }
         }
         guard let connection = videoOutput?.connection(with: .video) else { return }
         if connection.automaticallyAdjustsVideoMirroring { connection.automaticallyAdjustsVideoMirroring = false }
@@ -157,41 +166,59 @@ final class TimelapseManager: NSObject {
     }
 
     func switchCamera(completion: @escaping (Bool) -> Void) {
-        sessionQueue.async {
-            let started = ProcessInfo.processInfo.systemUptime
-            guard let previous = self.session.inputs.first as? AVCaptureDeviceInput else {
-                DispatchQueue.main.async { completion(false) }
-                return
-            }
-            let position: AVCaptureDevice.Position = previous.device.position == .front ? .back : .front
-            guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position),
-                  let input = try? AVCaptureDeviceInput(device: device) else {
-                DispatchQueue.main.async { completion(true) } // Previous camera remains usable.
-                return
-            }
+        let start = {
+            // Cover the preview before the session queue swaps inputs. The new
+            // connection is landscape until portrait is applied after commit.
+            NotificationCenter.default.post(name: .cameraSwitchWillBegin, object: self.session)
+            self.sessionQueue.async {
+                let started = ProcessInfo.processInfo.systemUptime
+                let finish: (Bool, AVCaptureDevice?) -> Void = { ready, device in
+                    DispatchQueue.main.async {
+                        if let device {
+                            self.publishCameraDevice(device)
+                        } else {
+                            NotificationCenter.default.post(name: .cameraConfigurationDidChange, object: self.session)
+                        }
+                        completion(ready)
+                    }
+                }
+                guard let previous = self.session.inputs.first as? AVCaptureDeviceInput else {
+                    finish(false, nil)
+                    return
+                }
+                let position: AVCaptureDevice.Position = previous.device.position == .front ? .back : .front
+                guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position),
+                      let input = try? AVCaptureDeviceInput(device: device) else {
+                    finish(true, nil) // Previous camera remains usable.
+                    return
+                }
 
-            // Keep the output and preview alive. Rebuilding the entire capture graph
-            // causes a long blank interval; only the camera input needs to change.
-            self.session.beginConfiguration()
-            self.session.removeInput(previous)
-            let switched = self.session.canAddInput(input)
-            if switched {
-                self.session.addInput(input)
-            } else if self.session.canAddInput(previous) {
-                self.session.addInput(previous)
+                // Keep the output and preview alive. Rebuilding the entire capture graph
+                // causes a long blank interval; only the camera input needs to change.
+                self.session.beginConfiguration()
+                self.session.removeInput(previous)
+                let switched = self.session.canAddInput(input)
+                if switched {
+                    self.session.addInput(input)
+                } else if self.session.canAddInput(previous) {
+                    self.session.addInput(previous)
+                }
+                let activeDevice = switched ? device : previous.device
+                self.prepareCaptureConnection()
+                self.session.commitConfiguration()
+                self.prepareCaptureConnection()
+                self.cameraShouldRun = true
+                if !self.session.isRunning { self.session.startRunning() }
+                self.applyActivePowerProfile(reason: "switchCamera")
+                let ready = !self.session.inputs.isEmpty
+                self.log("camera switch success=\(switched) durationMs=\(Int((ProcessInfo.processInfo.systemUptime - started) * 1000))")
+                finish(ready, activeDevice)
             }
-            let activeDevice = switched ? device : previous.device
-            self.prepareCaptureConnection()
-            self.session.commitConfiguration()
-            self.cameraShouldRun = true
-            if !self.session.isRunning { self.session.startRunning() }
-            self.applyActivePowerProfile(reason: "switchCamera")
-            let ready = !self.session.inputs.isEmpty
-            self.log("camera switch success=\(switched) durationMs=\(Int((ProcessInfo.processInfo.systemUptime - started) * 1000))")
-            DispatchQueue.main.async {
-                self.publishCameraDevice(activeDevice)
-                completion(ready)
-            }
+        }
+        if Thread.isMainThread {
+            start()
+        } else {
+            DispatchQueue.main.async(execute: start)
         }
     }
 
@@ -563,6 +590,8 @@ final class TimelapseManager: NSObject {
             self.prepareCaptureConnection()
 
             self.session.commitConfiguration()
+            // Commit rebuilds the preview connection at the sensor's landscape angle.
+            self.prepareCaptureConnection()
             self.cameraShouldRun = true
 
             if !self.session.isRunning {
@@ -859,6 +888,7 @@ final class TimelapseManager: NSObject {
     }
 
     private func appendFrame(from sampleBuffer: CMSampleBuffer) {
+        storePreviewStill(from: sampleBuffer)
         sampleBuffersReceived += 1
         if sampleBuffersReceived <= 3 {
             log("sample received #\(sampleBuffersReceived) isRecording=\(isRecording) paused=\(capturePaused) writerNil=\(assetWriter == nil)")
@@ -967,8 +997,42 @@ final class TimelapseManager: NSObject {
         backgroundTaskId = .invalid
     }
 
+    private func storePreviewStill(from sampleBuffer: CMSampleBuffer) {
+        let now = CACurrentMediaTime()
+        guard now - lastPreviewStillTime >= 0.2,
+              let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        lastPreviewStillTime = now
+        let source = CIImage(cvPixelBuffer: buffer)
+        let maxSide = max(source.extent.width, source.extent.height)
+        guard maxSide > 1 else { return }
+        let scale = 280 / maxSide
+        let small = source.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        let extent = small.extent.integral
+        guard extent.width > 1, extent.height > 1,
+              let cgImage = previewStillContext.createCGImage(small, from: extent) else { return }
+        PreviewFrameStore.shared.store(cgImage, for: session)
+    }
+
     private func log(_ message: String) {
         RecordingDiagnostics.log("Timelapse \(message)")
+    }
+}
+
+final class PreviewFrameStore {
+    static let shared = PreviewFrameStore()
+    private let lock = NSLock()
+    private var frames: [ObjectIdentifier: CGImage] = [:]
+
+    func store(_ image: CGImage, for session: AVCaptureSession) {
+        lock.lock()
+        frames[ObjectIdentifier(session)] = image
+        lock.unlock()
+    }
+
+    func image(for session: AVCaptureSession) -> CGImage? {
+        lock.lock()
+        defer { lock.unlock() }
+        return frames[ObjectIdentifier(session)]
     }
 }
 
