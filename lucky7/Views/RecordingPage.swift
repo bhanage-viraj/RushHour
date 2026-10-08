@@ -68,11 +68,11 @@ struct RecordingPage: View {
     @State private var pendingPrompt: PendingPrompt?
     @State private var unlock: UnlockInfo?
     @State private var breakBlockedInfo: BreakBlockedInfo?
+    @State private var showBreakSaveError = false
 
     struct PendingPrompt: Identifiable {
         let id = UUID()
         let distraction: Distraction
-        let actionOccurredAt: Date
         let tokenDataToClear: Data?
     }
 
@@ -380,7 +380,7 @@ struct RecordingPage: View {
             recLog("cameraReady changed ready=\(ready) autoStart=\(autoStart) hasStarted=\(hasStarted)")
             if autoStart, ready { beginSession() }   // start once the camera finishes warming up
         }
-        .onReceive(NotificationCenter.default.publisher(for: .shieldReturnTapped)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .shieldReturnTapped).receive(on: DispatchQueue.main)) { _ in
             checkPendingEvents()   // shield-return notification received/tapped → surface the prompt
         }
         .alert("Turn on notifications", isPresented: $showNotifNudge) {
@@ -427,7 +427,9 @@ struct RecordingPage: View {
                     ScreenWakeLock.setActive(true)
                 }
                 checkPendingEvents()   // jailbreak: pick up a break taken on the shield
-                cancelShieldFallbackNotifications()   // clear delivered shield notifications
+                UNUserNotificationCenter.current().removeDeliveredNotifications(
+                    withIdentifiers: ["rushhour.shieldreturn", "rushhour.shieldreason"]
+                )
                 SessionNotifications.cancelAwayNudges()   // they're back — drop the "still there?" pings
                 // notifications ARE the return path now — re-nudge if they got denied mid-session
                 Task { if await NotificationPermission.isDenied() { showNotifNudge = true } }
@@ -493,6 +495,12 @@ struct RecordingPage: View {
                 onSubmit: { takeBreak($0, for: prompt) },
                 onCancel: { cancelBreak(for: prompt) }
             )
+            .onAppear(perform: cancelShieldFallbackNotifications)
+            .alert("Could not save your reason", isPresented: $showBreakSaveError) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text("The app is still blocked. Please try submitting your reason again.")
+            }
             .presentationDetents([.large])
             .presentationCornerRadius(40)
             .presentationDragIndicator(.visible)
@@ -662,9 +670,10 @@ struct RecordingPage: View {
     }
 
     private func takeBreak(_ reason: String, for prompt: PendingPrompt) {
-        prompt.distraction.reason = reason
-        prompt.distraction.reasonSubmitted = true
+        guard pendingPrompt?.id == prompt.id, !prompt.distraction.reasonSubmitted else { return }
+        guard saveBreakReason(reason, for: prompt.distraction) else { return }
         #if os(iOS)
+        checkPendingEvents()   // consume repeat shield requests while this prompt still owns the break
         focusController.grantBreak(for: prompt.distraction)
         let secs = Int(FocusViewModel.breakDuration)
         unlock = UnlockInfo(timeText: String(format: "%d:%02d", secs / 60, secs % 60))
@@ -673,10 +682,24 @@ struct RecordingPage: View {
         pendingPrompt = nil
     }
 
-    private func cancelBreak(for prompt: PendingPrompt) {
-        if pendingPrompt?.id == prompt.id {
-            pendingPrompt = nil
+    private func saveBreakReason(_ reason: String, for distraction: Distraction) -> Bool {
+        let reason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !reason.isEmpty else { return false }
+        distraction.reason = reason
+        distraction.reasonSubmitted = true
+        do {
+            try modelContext.save()
+        } catch {
+            distraction.reasonSubmitted = false
+            showBreakSaveError = true
+            return false
         }
+        return true
+    }
+
+    private func cancelBreak(for prompt: PendingPrompt) {
+        guard pendingPrompt?.id == prompt.id, !prompt.distraction.reasonSubmitted else { return }
+        pendingPrompt = nil
 
         #if os(iOS)
         if focusController.activeBreaks.contains(where: { $0.id == prompt.distraction.id }) {
@@ -691,9 +714,10 @@ struct RecordingPage: View {
     // jailbreak: a break was taken on the shield → record it and prompt for a reason
     private func checkPendingEvents() {
         #if os(iOS)
-        guard breakBlockedInfo == nil, unlock == nil else { return }
+        guard focusController.isEngaged, breakBlockedInfo == nil, unlock == nil else { return }
         guard let pair = SharedJailbreakStore.nextUnhandledBreak() else { return }
-        if let pendingPrompt, pair.action.occurredAt <= pendingPrompt.actionOccurredAt {
+        if pendingPrompt != nil {
+            SharedJailbreakStore.markBreakHandled(pair.action.occurredAt)
             return
         }
 
@@ -703,13 +727,6 @@ struct RecordingPage: View {
             breakBlockedInfo = BreakBlockedInfo()
             SharedJailbreakStore.markBreakHandled(pair.action.occurredAt)   // consume so it won't re-prompt
             return
-        }
-
-        if let stalePrompt = pendingPrompt,
-           !stalePrompt.distraction.reasonSubmitted,
-           stalePrompt.distraction.breakGrantedUntil == nil {
-            modelContext.delete(stalePrompt.distraction)
-            pendingPrompt = nil
         }
 
         let tokenData = pair.action.tokenData ?? pair.config?.tokenData
@@ -741,7 +758,6 @@ struct RecordingPage: View {
         SharedJailbreakStore.markBreakHandled(pair.action.occurredAt)
         pendingPrompt = PendingPrompt(
             distraction: distraction,
-            actionOccurredAt: pair.action.occurredAt,
             tokenDataToClear: tokenData
         )
         #endif
@@ -750,10 +766,11 @@ struct RecordingPage: View {
     // .openParentalControlsApp is the primary shield→app return; the shield also queued
     // a delayed notification as a fallback. We're back in the app now, so drop it.
     private func cancelShieldFallbackNotifications() {
-        // Only clear DELIVERED ones — leave any pending request to fire, since pending means the
-        // app hasn't genuinely returned yet (don't kill the safety net on a transient .active).
+        // The reason sheet is visible, so the delayed return fallback is no longer needed.
         let ids = ["rushhour.shieldreturn", "rushhour.shieldreason"]
-        UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ids)
+        let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: ids)
+        center.removeDeliveredNotifications(withIdentifiers: ids)
     }
 
     // stamp endTime on any break still open this session, so the distracted time is recorded

@@ -144,7 +144,7 @@ struct WrapShareComposer: View {
     private func templateCarousel(in available: CGSize) -> some View {
         let cardSize = fittedCardSize(in: available)
         let sideMargin = max((available.width - cardSize.width) / 2, 0)
-        let cardTopPadding = min(Self.cardTopPadding, max((available.height - cardSize.height) / 2, 0))
+        let cardTopPadding = max((available.height - cardSize.height) / 2, 0)
 
         return ScrollView(.horizontal) {
             LazyHStack(alignment: .top, spacing: Self.cardSpacing) {
@@ -290,12 +290,21 @@ struct WrapShareComposer: View {
     }
 
     private func fittedCardSize(in available: CGSize) -> CGSize {
-        let widthScale = max((available.width - 32) / Self.cardSize.width, 0)
-        let heightScale = max((available.height - Self.cardTopPadding - 12) / Self.cardSize.height, 0)
+        var cardSize = Self.cardSize
+        if let image = viewModel.posterImage, image.size.width > 0, image.size.height > 0 {
+            // The poster already applies the video's preferred track transform.
+            let aspectRatio = image.size.width / image.size.height
+            let longSide = Self.cardSize.height
+            cardSize = aspectRatio > 1
+                ? CGSize(width: longSide, height: longSide / aspectRatio)
+                : CGSize(width: longSide * aspectRatio, height: longSide)
+        }
+        let widthScale = max((available.width - 32) / cardSize.width, 0)
+        let heightScale = max((available.height - Self.cardTopPadding - 12) / cardSize.height, 0)
         let scale = min(widthScale, heightScale, 1)
         return CGSize(
-            width: Self.cardSize.width * scale,
-            height: Self.cardSize.height * scale
+            width: cardSize.width * scale,
+            height: cardSize.height * scale
         )
     }
 
@@ -397,7 +406,8 @@ private struct WrapTemplateCard: View {
     var sourceContainsMetadata = false
 
     var body: some View {
-        ZStack {
+        Color.black
+        .overlay {
             if template.isTransparent {
                 CheckerboardBackground()
             } else if let image {
@@ -405,18 +415,15 @@ private struct WrapTemplateCard: View {
                     .resizable()
                     .scaledToFill()
             } else {
-                Color.black
-                    .overlay {
-                        ProgressView()
-                            .tint(.white)
-                    }
+                ProgressView()
+                    .tint(.white)
             }
-
+        }
+        .overlay {
             if !(template == .styled && sourceContainsMetadata) {
                 WrapMetadataOverlay(template: template, metadata: metadata)
                     .allowsHitTesting(false)
             }
-
         }
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .overlay {
