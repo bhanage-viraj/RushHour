@@ -31,7 +31,6 @@ final class Distraction {
 struct PendingPrompt: Identifiable {
     let id = UUID()
     let distraction: Distraction
-    let actionOccurredAt: Date
     let tokenDataToClear: Data?
 }
 struct UnlockInfo { let timeText: String }
@@ -79,8 +78,8 @@ var failures = 0
 func expect(_ condition: Bool, _ message: String) {
     if condition { print("PASS: \(message)") } else { failures += 1; print("FAIL: \(message)") }
 }
-func prompt(_ time: Date = .now) -> PendingPrompt {
-    PendingPrompt(distraction: Distraction(), actionOccurredAt: time, tokenDataToClear: nil)
+func prompt() -> PendingPrompt {
+    PendingPrompt(distraction: Distraction(), tokenDataToClear: nil)
 }
 func event(_ time: Date = .now) {
     SharedJailbreakStore.handled = .distantPast
@@ -114,7 +113,7 @@ stale.cancelBreak(for: stalePrompt)
 expect(stale.focusController.grants == 0 && stale.pendingPrompt?.id == current.id
        && stale.modelContext.deletes == 0, "stale callbacks cannot affect the current prompt")
 
-let editing = Probe(), editingPrompt = prompt(Date().addingTimeInterval(-10))
+let editing = Probe(), editingPrompt = prompt()
 editing.pendingPrompt = editingPrompt
 event(); editing.checkPendingEvents()
 expect(editing.pendingPrompt?.id == editingPrompt.id && editing.modelContext.deletes == 0

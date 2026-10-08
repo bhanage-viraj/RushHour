@@ -11,6 +11,7 @@ Share posters could expand their layout before rounded clipping. The carousel al
 1. Retain the active reason prompt while consuming repeated shield requests. Accept submit/cancel only for that prompt, reject blank reasons, and save the reason before granting access. Failed persistence keeps restrictions and the form available for retry. **Review focus:** the first successful save must precede the unlock; stale cancel callbacks must not delete an accepted record.
 2. Deliver shield-return notifications on the main queue, cancel pending fallback notifications once the reason form appears, and calculate break eligibility from the current deadline.
 3. Make the allocated card surface own its image and metadata overlays before clipping. Fit every template to the transformed poster's aspect ratio and center it horizontally and vertically above the share panel. Export behavior is unchanged.
+4. Remove the unused `PendingPrompt.actionOccurredAt` timestamp and its harness copy; prompt identity now owns callback validation.
 
 ## Observable behavior
 

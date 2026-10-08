@@ -73,7 +73,6 @@ struct RecordingPage: View {
     struct PendingPrompt: Identifiable {
         let id = UUID()
         let distraction: Distraction
-        let actionOccurredAt: Date
         let tokenDataToClear: Data?
     }
 
@@ -754,7 +753,6 @@ struct RecordingPage: View {
         SharedJailbreakStore.markBreakHandled(pair.action.occurredAt)
         pendingPrompt = PendingPrompt(
             distraction: distraction,
-            actionOccurredAt: pair.action.occurredAt,
             tokenDataToClear: tokenData
         )
         #endif
