@@ -671,17 +671,7 @@ struct RecordingPage: View {
 
     private func takeBreak(_ reason: String, for prompt: PendingPrompt) {
         guard pendingPrompt?.id == prompt.id, !prompt.distraction.reasonSubmitted else { return }
-        let reason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !reason.isEmpty else { return }
-        prompt.distraction.reason = reason
-        prompt.distraction.reasonSubmitted = true
-        do {
-            try modelContext.save()
-        } catch {
-            prompt.distraction.reasonSubmitted = false
-            showBreakSaveError = true
-            return
-        }
+        guard saveBreakReason(reason, for: prompt.distraction) else { return }
         #if os(iOS)
         checkPendingEvents()   // consume repeat shield requests while this prompt still owns the break
         focusController.grantBreak(for: prompt.distraction)
@@ -690,6 +680,21 @@ struct RecordingPage: View {
         #endif
         try? modelContext.save()
         pendingPrompt = nil
+    }
+
+    private func saveBreakReason(_ reason: String, for distraction: Distraction) -> Bool {
+        let reason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !reason.isEmpty else { return false }
+        distraction.reason = reason
+        distraction.reasonSubmitted = true
+        do {
+            try modelContext.save()
+        } catch {
+            distraction.reasonSubmitted = false
+            showBreakSaveError = true
+            return false
+        }
+        return true
     }
 
     private func cancelBreak(for prompt: PendingPrompt) {

@@ -12,6 +12,7 @@ Share posters could expand their layout before rounded clipping. The carousel al
 2. Deliver shield-return notifications on the main queue, cancel pending fallback notifications once the reason form appears, and calculate break eligibility from the current deadline.
 3. Make the allocated card surface own its image and metadata overlays before clipping. Fit every template to the transformed poster's aspect ratio and center it horizontally and vertically above the share panel. Export behavior is unchanged.
 4. Remove the unused `PendingPrompt.actionOccurredAt` timestamp and its harness copy; prompt identity now owns callback validation.
+5. Separate reason validation/persistence into `saveBreakReason`, so `takeBreak` only accepts the prompt, saves its reason and unlocks. Lizard 1.24.0 measures `takeBreak` at 5 before and 4 after; the new helper scores 4. The checks exercise both production methods and preserve save-failure/retry behavior.
 
 ## Observable behavior
 

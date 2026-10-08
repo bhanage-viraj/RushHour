@@ -71,7 +71,8 @@ final class Probe {
     let modelContext = Context(), focusController = FocusViewModel(), sessionTimer = SessionTimer()
     func cancelShieldFallbackNotifications() {}
 ''' + '\n'.join(method(recording, x) for x in [
-    'private func takeBreak(', 'private func cancelBreak(', 'private func checkPendingEvents()',
+    'private func takeBreak(', 'private func saveBreakReason(',
+    'private func cancelBreak(', 'private func checkPendingEvents()',
 ]) + r'''
 }
 var failures = 0
