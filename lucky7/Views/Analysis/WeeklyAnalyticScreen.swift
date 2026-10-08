@@ -14,6 +14,9 @@ import ManagedSettings
 struct WeeklyAnalyticScreen: View {
     /// First day of the week initially shown (passed in from the history screen).
     var weekStart: Date = Date()
+    /// Month owning the initial history segment. When a calendar week crosses a
+    /// month boundary, analytics must not pull records from the adjacent month.
+    var segmentMonthStart: Date? = nil
 
     @Environment(\.dismiss) private var dismiss
 
@@ -29,7 +32,29 @@ struct WeeklyAnalyticScreen: View {
 
     /// First day of the week currently being shown.
     private var currentWeekStart: Date {
-        calendar.date(byAdding: .day, value: weekOffset * 7, to: weekStart) ?? weekStart
+        let initialStart = calendar.dateInterval(of: .weekOfYear, for: weekStart)?.start ?? weekStart
+        return calendar.date(byAdding: .day, value: weekOffset * 7, to: initialStart) ?? initialStart
+    }
+
+    /// The month associated with the displayed segment. The initial value comes
+    /// directly from History because a cross-month week has two valid month sides.
+    private var currentSegmentMonthStart: Date {
+        if weekOffset == 0, let segmentMonthStart { return segmentMonthStart }
+        return calendar.date(
+            from: calendar.dateComponents([.year, .month], from: currentWeekStart)
+        ) ?? currentWeekStart
+    }
+
+    /// Calendar-week interval clipped to its owning month.
+    private var currentSegmentInterval: DateInterval? {
+        guard let week = calendar.dateInterval(of: .weekOfYear, for: currentWeekStart),
+              let month = calendar.dateInterval(of: .month, for: currentSegmentMonthStart) else {
+            return nil
+        }
+        let start = max(week.start, month.start)
+        let end = min(week.end, month.end)
+        guard start < end else { return nil }
+        return DateInterval(start: start, end: end)
     }
 
     private var weekPeriodKey: String { WrapStorage.weekKey(for: currentWeekStart, calendar: calendar) }
@@ -37,10 +62,10 @@ struct WeeklyAnalyticScreen: View {
         calendar.dateInterval(of: .weekOfYear, for: currentWeekStart)?.end ?? currentWeekStart
     }
 
-    /// Sessions that fall inside the displayed week. Uses the same week interval
-    /// the history screen groups by, so a session can't slip through a boundary.
+    /// Sessions inside the displayed week segment. The month-clipped interval keeps
+    /// September records out of an October segment (and vice versa).
     private var sessions: [Session] {
-        guard let interval = calendar.dateInterval(of: .weekOfYear, for: currentWeekStart) else { return [] }
+        guard let interval = currentSegmentInterval else { return [] }
         return allSessions.filter { interval.contains($0.startTime) }
     }
 
@@ -74,7 +99,8 @@ struct WeeklyAnalyticScreen: View {
 
     private func changeWeek(by weeks: Int) {
         let newOffset = weekOffset + weeks
-        guard let candidate = calendar.date(byAdding: .day, value: newOffset * 7, to: weekStart) else { return }
+        let initialStart = calendar.dateInterval(of: .weekOfYear, for: weekStart)?.start ?? weekStart
+        guard let candidate = calendar.date(byAdding: .day, value: newOffset * 7, to: initialStart) else { return }
         guard candidate <= thisWeekStart else { return }                 // no future weeks
         if let earliest = earliestWeekStart, candidate < earliest { return } // no weeks before first session
         withAnimation(.easeInOut(duration: 0.2)) { weekOffset = newOffset }
@@ -136,8 +162,11 @@ struct WeeklyAnalyticScreen: View {
     }
 
     private var weekRangeLabel: String {
-        let start = currentWeekStart
-        let end = calendar.date(byAdding: .day, value: 6, to: start) ?? start
+        let start = currentSegmentInterval?.start ?? currentWeekStart
+        let exclusiveEnd = currentSegmentInterval?.end
+            ?? calendar.date(byAdding: .day, value: 7, to: start)
+            ?? start
+        let end = calendar.date(byAdding: .day, value: -1, to: exclusiveEnd) ?? start
         if calendar.isDate(start, equalTo: end, toGranularity: .month) {
             return "\(formatted(start, "d")) - \(formatted(end, "d MMMM yyyy"))"
         } else if calendar.isDate(start, equalTo: end, toGranularity: .year) {
@@ -166,8 +195,10 @@ struct WeeklyAnalyticScreen: View {
 
     /// Per-day focus / distracted split for the seven days of the week.
     private var dayStats: [DayStat] {
-        (0..<7).map { offset in
-            let day = calendar.date(byAdding: .day, value: offset, to: currentWeekStart) ?? currentWeekStart
+        guard let interval = currentSegmentInterval else { return [] }
+        let dayCount = max(1, calendar.dateComponents([.day], from: interval.start, to: interval.end).day ?? 0)
+        return (0..<dayCount).map { offset in
+            let day = calendar.date(byAdding: .day, value: offset, to: interval.start) ?? interval.start
             let daySessions = sessions.filter { calendar.isDate($0.startTime, inSameDayAs: day) }
             let dayIDs = Set(daySessions.map(\.id))
             let distracted = weekDistractions
@@ -556,6 +587,7 @@ struct WeeklyAnalyticScreen: View {
                         }
                         .padding(.top, 12)
                     }
+                    .foregroundStyle(.black)
                 }
                 .padding(.horizontal, 24)
                 .simultaneousGesture(weekSwipeGesture)
