@@ -1,49 +1,22 @@
-# Stabilize break submission and center share previews
+# Add an isolated Rush Hour Dev build for TestFlight
 
-## Background and previous behavior
-
-Issues #39 and #43 report inconsistent unlock behavior after entering a reason and apparent share-card overlap. A repeat shield event could replace the reason prompt, repeat callbacks could grant or cancel an accepted break, and unlocking preceded successful reason persistence. Break eligibility also used a cached timer value.
-
-Share posters could expand their layout before rounded clipping. The carousel always allocated a portrait card, even for landscape video, and capped its top inset at 10 points rather than centering it vertically.
+The team needs beta builds on their phones alongside the App Store app. The existing scheme uses the production bundle ID and shared Screen Time App Group, so merely building a `develop` branch would replace that installed app.
 
 ## Changes
 
-1. Retain the active reason prompt while consuming repeated shield requests. Accept submit/cancel only for that prompt, reject blank reasons, and save the reason before granting access. Failed persistence keeps restrictions and the form available for retry. **Review focus:** the first successful save must precede the unlock; stale cancel callbacks must not delete an accepted record.
-2. Deliver shield-return notifications on the main queue, cancel pending fallback notifications once the reason form appears, and calculate break eligibility from the current deadline.
-3. Make the allocated card surface own its image and metadata overlays before clipping. Fit every template to the transformed poster's aspect ratio and center it horizontally and vertically above the share panel. Export behavior is unchanged.
-4. Remove the unused `PendingPrompt.actionOccurredAt` timestamp and its harness copy; prompt identity now owns callback validation.
-5. Separate reason validation/persistence into `saveBreakReason`, so `takeBreak` only accepts the prompt, saves its reason and unlocks. Lizard 1.24.0 measures `takeBreak` at 5 before and 4 after; the new helper scores 4. The checks exercise both production methods and preserve save-failure/retry behavior.
+1. Reuse all five existing targets and add a release-based `Dev` configuration plus the `RushHourDev` scheme.
+2. Select the app name, root bundle ID and App Group through project build settings. Extension identifiers retain their existing suffixes under the Dev app ID.
+3. Resolve the App Group through each bundle's Info.plist and the matching entitlement setting. Production Debug/Release settings retain their original identity.
 
-## Observable behavior
+No new dependency, duplicated app target, schema migration or CI automation. Time-complexity scan: no new loop, collection, concurrency or pagination shape; the bundle metadata lookup is O(1).
 
-A valid pasted reason grants one break; repeated submission cannot grant another or let a stale cancellation revoke it. Empty reasons and failed saves leave the app blocked. A 16:9 poster in a 402-point-wide carousel produces a 370 × 208.125-point card instead of a portrait card.
+## Verification
 
-## Time complexity
+- [x] Dev device archive, distribution IPA export and simulator build pass with the iOS 27 SDK.
+- [x] App and extension bundle IDs, group entitlements and signatures verified; production Debug/Release identities unchanged.
+- [x] Dev installs beside production in the simulator with separate data containers; production container unchanged.
+- [x] Existing 12 break-state checks and camera geometry/segment-export checks pass; whitespace check passes.
+- [ ] TestFlight upload: currently blocked by the missing separate App Store Connect app record.
+- [ ] Physical-device coexistence and TestFlight install/update behavior.
 
-The Part 1 smell scan found no new scaling bottleneck. Card fitting is O(1), and the carousel has at most three templates. The existing event lookup sorts action/config arrays: O(actionEvents log actionEvents + configEvents log configEvents), plus O(activeBreaks) eligibility scanning. Accepted submission now invokes that lookup once more to consume repeated requests. Event storage and sorting are unchanged; no performance benchmark or optimization is claimed.
-
-## How to verify
-
-Use the booted iOS 27 simulator `E8EE0633-8278-48A4-8F24-7321EAABBE1E`:
-
-```sh
-python3 scripts/check-shield-breaks.py E8EE0633-8278-48A4-8F24-7321EAABBE1E
-python3 scripts/check-share-cards.py E8EE0633-8278-48A4-8F24-7321EAABBE1E /private/tmp/lucky7-pr-share-card-evidence
-xcodebuild -project lucky7.xcodeproj -scheme lucky7 -configuration Debug -destination 'generic/platform=iOS' -derivedDataPath /private/tmp/lucky7-pr-build CODE_SIGNING_ALLOWED=NO build
-git diff --check
-```
-
-- [x] Twelve production-method break-state checks pass, including repeated/stale callbacks, blank reasons, save failure/retry, prompt retention and deadline expiry. Persistence, Screen Time and shared event delivery are boundary doubles.
-- [x] Six production card-fitting checks pass for portrait/landscape sources in 320, 402 and 1024-point containers.
-- [x] Twelve simulator card renders show zero pixels outside their allocated bounds. They use synthetic posters and fallback fonts, so they prove containment rather than complete branded-screen fidelity.
-- [x] Regression evidence: the original fitting method failed all three landscape orientation cases; the original card layout failed four containment cases.
-- [x] An iOS 27 device build was signed, installed and launched on the user's iPhone. The user accepted #39 and #43, including the final centering update.
-- [x] `git diff --check` passed.
-
-Manual regression checks: start a focus session with two blocked apps; test typed/pasted reasons, rapid submission and cancellation, foreground/notification return paths, and reblocking after 15 minutes. Open both portrait and landscape sessions from the wrap and analytics entry points; swipe through templates and check containment, centering and selected-template sharing. User acceptance was reported in chat; the agent did not observe every manual scenario.
-
-## Scope and compatibility
-
-No schema, signing-setting or export changes. #38's unresolved shield layout/appearance work is excluded from this PR, and #42 remains deferred. Category/domain targeting findings are separate from this fix.
-
-Closes #39. Closes #43.
+Run commands, identifiers and Apple account setup are documented in [development-builds.md](docs/development-builds.md). The Account Holder's capabilities must support the Dev identifiers; a development signature alone is insufficient for TestFlight. Distribution export was verified, but TestFlight processing and external Beta App Review are separate steps.
