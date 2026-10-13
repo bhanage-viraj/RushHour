@@ -18,6 +18,7 @@ struct HomePage: View {
 
     @EnvironmentObject private var sessionTimer: SessionTimerViewModel
     @EnvironmentObject private var sessionRecording: SessionRecordingViewModel
+    @EnvironmentObject private var pendingSiriSession: PendingSiriSession
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var hours = 0
@@ -173,18 +174,26 @@ struct HomePage: View {
         .background(safeAreaReader)
         .onAppear {
             if isActiveTab { sessionRecording.noteHomePreviewInteraction() }
+            tryStartPendingSiriSession()
         }
         .onDisappear { sessionRecording.stopHomePreview() }
         .onChange(of: isActiveTab) { _, active in
-            if active { sessionRecording.noteHomePreviewInteraction() }
-            else { sessionRecording.stopHomePreview() }
+            if active {
+                sessionRecording.noteHomePreviewInteraction()
+                tryStartPendingSiriSession()
+            } else {
+                sessionRecording.stopHomePreview()
+            }
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .active:
                 // Mid-session the camera is already live — only warm it up for the idle
                 // home preview, never underneath a recording.
-                if isActiveTab && !sessionActive { sessionRecording.noteHomePreviewInteraction() }
+                if isActiveTab && !sessionActive {
+                    sessionRecording.noteHomePreviewInteraction()
+                    tryStartPendingSiriSession()
+                }
             case .background, .inactive:
                 sessionRecording.stopHomePreview()
             @unknown default:
@@ -197,6 +206,12 @@ struct HomePage: View {
         }
         .onChange(of: isReadyToRecord) { _, ready in
             if ready { tipDurationSeen = true }   // first duration set → drop the setup tip for good
+        }
+        .onChange(of: sessionRecording.cameraReady) { _, ready in
+            if ready { tryStartPendingSiriSession() }
+        }
+        .onChange(of: pendingSiriSession.totalSeconds) { _, seconds in
+            if seconds != nil { tryStartPendingSiriSession() }
         }
         .fullScreenCover(isPresented: $showSettings) {
             SettingsScreen()
@@ -224,6 +239,38 @@ struct HomePage: View {
 
     private func endSession() {
         withAnimation(transition) { sessionActive = false }
+    }
+
+    /// Apply a queued Siri / Shortcuts duration and jump straight into recording.
+    private func tryStartPendingSiriSession() {
+        guard isActiveTab, !sessionActive else {
+            // Don't interrupt an in-progress session.
+            if sessionActive { pendingSiriSession.clear() }
+            return
+        }
+        guard !sessionRecording.isRecording else {
+            pendingSiriSession.clear()
+            return
+        }
+        guard let total = pendingSiriSession.totalSeconds else { return }
+
+        sessionRecording.noteHomePreviewInteraction()
+        guard sessionRecording.cameraReady else { return }
+
+        // Consume only once we're ready to start — otherwise a later cameraReady
+        // / appear hook can retry with the same queued duration.
+        guard pendingSiriSession.consume() != nil else { return }
+
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        let s = total % 60
+        hours = h
+        minutes = m
+        seconds = s
+        tipDurationSeen = true
+        tipStartSeen = true
+        sessionTimer.configure(hours: h, minutes: m, seconds: s)
+        withAnimation(transition) { sessionActive = true }
     }
 }
 
@@ -794,4 +841,5 @@ private struct HomeTimeDial: View {
     HomePage()
         .environmentObject(SessionTimerViewModel())
         .environmentObject(SessionRecordingViewModel())
+        .environmentObject(PendingSiriSession.shared)
 }

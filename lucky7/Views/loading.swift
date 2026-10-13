@@ -8,6 +8,7 @@ import Combine
 
 struct Loading: View {
     @AppStorage("didShowAppBlockOnboarding") private var didShowOnboarding = false
+    @EnvironmentObject private var pendingSiriSession: PendingSiriSession
     @State private var pulse = false
     @State private var showHome = false
     @State private var selectedTab = 0
@@ -67,6 +68,15 @@ struct Loading: View {
                 .onAppear {
                     UIApplication.shared.enableTapToDismissKeyboard()
                     loadPendingRecoveryIfNeeded()
+                    if pendingSiriSession.hasPending {
+                        selectedTab = 0
+                    }
+                }
+                .onChange(of: pendingSiriSession.totalSeconds) { _, seconds in
+                    // Siri start while already on Home — jump to the Rush Hour tab.
+                    if seconds != nil {
+                        withAnimation(.easeInOut(duration: 0.2)) { selectedTab = 0 }
+                    }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .returnToHomeTab)) { _ in
                     withAnimation(.easeInOut(duration: 0.2)) { selectedTab = 0 }
@@ -132,12 +142,34 @@ struct Loading: View {
                     UIApplication.shared.enableTapToDismissKeyboard()
                 }
 
+                // Siri / Shortcuts: skip the splash and go straight to Home so recording
+                // can start without waiting on the 3s intro.
+                if pendingSiriSession.hasPending {
+                    showHome = true
+                    selectedTab = 0
+                    // Don't start behind onboarding — drop the request until setup is done.
+                    if !didShowOnboarding {
+                        pendingSiriSession.clear()
+                    }
+                    loadPendingRecoveryIfNeeded()
+                    return
+                }
+
                 // Navigate after 3 sec
                 DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                     withAnimation(.easeInOut) {
                         showHome = true
                     }
                     loadPendingRecoveryIfNeeded()
+                }
+            }
+            .onChange(of: pendingSiriSession.totalSeconds) { _, seconds in
+                // Intent fired while still on splash (or after splash timer started).
+                guard seconds != nil, !showHome else { return }
+                showHome = true
+                selectedTab = 0
+                if !didShowOnboarding {
+                    pendingSiriSession.clear()
                 }
             }
         }
@@ -239,4 +271,8 @@ private struct HidesFloatingTabBar: ViewModifier {
 
 #Preview {
     Loading()
+        .environmentObject(FocusViewModel())
+        .environmentObject(SessionTimerViewModel())
+        .environmentObject(SessionRecordingViewModel())
+        .environmentObject(PendingSiriSession.shared)
 }

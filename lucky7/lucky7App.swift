@@ -16,6 +16,7 @@ struct lucky7App: App {
     @StateObject private var focusController = FocusViewModel()
     @StateObject private var sessionTimer = SessionTimerViewModel()
     @StateObject private var sessionRecording = SessionRecordingViewModel()
+    @ObservedObject private var pendingSiriSession = PendingSiriSession.shared
 
     private let container: ModelContainer = {
         do {
@@ -31,6 +32,7 @@ struct lucky7App: App {
                 .environmentObject(focusController)
                 .environmentObject(sessionTimer)
                 .environmentObject(sessionRecording)
+                .environmentObject(pendingSiriSession)
                 // No notification prompt on launch — it used to fire here and
                 // landed on top of the first onboarding screen, asking before
                 // the user knew what it was for. `RecordingPage` requests it at
