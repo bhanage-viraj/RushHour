@@ -19,6 +19,12 @@ final class SessionRecordingViewModel: ObservableObject {
     @Published var previewFrames: [UIImage] = []
     @Published var cameraReady = false
     @Published var permissionDenied = false
+    /// Back camera is active — used to show the 0.5× / 1× lens control on Home.
+    @Published private(set) var isBackCamera = false
+    /// Device has a back ultra-wide lens.
+    @Published private(set) var supportsUltraWide = TimelapseManager.isUltraWideCameraAvailable
+    /// Back ultra-wide (0.5×) is the live input.
+    @Published private(set) var isUltraWideActive = false
     @Published var savedToPhotos = false
     /// Photos-library local id for the saved wrap, persisted on the Session so deleting
     /// the session can also remove the copy from the user's library.
@@ -74,6 +80,7 @@ final class SessionRecordingViewModel: ObservableObject {
                 if granted {
                     self.timelapseManager.startRunning()
                     self.statusMessage = nil
+                    self.syncCameraLensState()
                 } else {
                     self.lastError = "Camera access is required to record."
                 }
@@ -93,8 +100,32 @@ final class SessionRecordingViewModel: ObservableObject {
                 guard let self else { return }
                 self.isConfiguringCamera = false
                 self.cameraReady = ready
+                self.syncCameraLensState()
             }
         }
+    }
+
+    /// Toggle the back camera between 1× (wide) and 0.5× (ultra-wide).
+    func toggleBackCameraZoom() {
+        guard cameraReady, isBackCamera, supportsUltraWide else { return }
+        guard !isRecording, !isStartingRecording, !isConfiguringCamera else { return }
+        cameraReady = false
+        isConfiguringCamera = true
+        let useUltraWide = !isUltraWideActive
+        timelapseManager.setBackCameraUltraWide(useUltraWide) { [weak self] ready in
+            Task { @MainActor in
+                guard let self else { return }
+                self.isConfiguringCamera = false
+                self.cameraReady = ready
+                self.syncCameraLensState()
+            }
+        }
+    }
+
+    private func syncCameraLensState() {
+        supportsUltraWide = TimelapseManager.isUltraWideCameraAvailable
+        isBackCamera = timelapseManager.currentCameraPosition == .back
+        isUltraWideActive = timelapseManager.isUsingUltraWideCamera
     }
 
     func stopCamera() {
