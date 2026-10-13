@@ -11,7 +11,7 @@ import UIKit
 
 
 class ShieldConfigurationExtension: ShieldConfigurationDataSource {
-    private let appGroupId = "group.com.andrianangg.Traffic-Man"
+    private let appGroupId = "group.bhanageviraj.RushHour"
 
     private func containerFile(_ name: String) -> URL? {
         FileManager.default

@@ -10,7 +10,7 @@ import ManagedSettings
 import UserNotifications
 import os
 
-private let actionLog = OSLog(subsystem: "com.andrianangg.Traffic-Man.RushHourShieldAction", category: "ShieldAction")
+private let actionLog = OSLog(subsystem: "bhanageviraj.RushHour.RushHourShieldAction", category: "ShieldAction")
 
 class ShieldActionExtension: ShieldActionDelegate {
     override init() {
@@ -18,7 +18,7 @@ class ShieldActionExtension: ShieldActionDelegate {
         os_log("RUSHHOUR_ACTION_INIT — ShieldActionExtension initialized", log: actionLog, type: .default)
     }
 
-    private let appGroupId = "group.com.andrianangg.Traffic-Man"
+    private let appGroupId = "group.bhanageviraj.RushHour"
 
     private func containerFile(_ name: String) -> URL? {
         FileManager.default

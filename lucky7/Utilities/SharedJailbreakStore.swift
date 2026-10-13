@@ -19,7 +19,7 @@ struct PendingJailbreakEvent: Identifiable {
 
 // each writer gets its own file so the app and the extensions don't clobber each other
 enum SharedJailbreakStore {
-    static let appGroupId = "group.com.andrianangg.Traffic-Man"
+    static let appGroupId = "group.bhanageviraj.RushHour"
 
     static func fileURL(_ name: String) -> URL? {
         FileManager.default
