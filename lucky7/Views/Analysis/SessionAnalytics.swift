@@ -6,6 +6,8 @@
 import SwiftUI
 import SwiftData
 import UIKit
+import FamilyControls
+import ManagedSettings
 
 struct SessionAnalytics: View {
     var sessionId: UUID
@@ -26,6 +28,10 @@ struct SessionAnalytics: View {
     @State private var showDeleteConfirm = false
     @State private var fullscreenSnapshot: FullscreenSnapshot?
     @State private var isShowingShareComposer = false
+    @State private var isEditingSession = false
+    @State private var editedTitle = ""
+    @State private var editedSummary = ""
+    @State private var showEditError = false
 
     init(sessionId: UUID, videoFrames: [UIImage] = [], onClose: (() -> Void)? = nil) {
         self.sessionId = sessionId
@@ -132,55 +138,51 @@ struct SessionAnalytics: View {
     // MARK: - Body
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Button(action: close) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 20, weight: .bold))
-                        .foregroundColor(.white)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .accessibilityLabel("Close")
-                .accessibilityHint("Closes session analytics")
-                .accessibilityInputLabels(["close", "done", "exit"])
-
-                Spacer()
-
-                shareButton
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 10)
-
+        NavigationStack {
             ScrollView(showsIndicators: false) {
-                VStack(spacing: 24) {
+                VStack(spacing: 16) {
                     statsCard
                     detailCard
+                    distractionsCard
+                    deleteButton
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 24)
+                .padding(.horizontal, 16)
+                .padding(.top, 50)
+                .padding(.bottom, 38)
+                .frame(maxWidth: 450)
+                .frame(maxWidth: .infinity)
+                .background(alignment: .top) {
+                    GeometryReader { geometry in
+                        Image("AnalyticsPattern")
+                            .resizable()
+                            .frame(width: 786.807, height: 839.155)
+                            .position(x: geometry.size.width / 2 + 0.4, y: 349.578)
+                            .accessibilityHidden(true)
+                    }
+                }
             }
-
-            deleteButton
-        }
-        .background {
-            Color("CanvasBlue")
-                .overlay {
-                    Image("PatternBackground")
-                        .resizable()
-                        .scaledToFill()
+            .scrollClipDisabled()
+            .background(Color("SessionDetailsBlue").ignoresSafeArea())
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.hidden, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(action: close) { Image(systemName: "chevron.left") }
+                        .tint(.white)
+                        .accessibilityLabel("Back to My Sessions")
+                        .accessibilityInputLabels(["back", "close", "done"])
                 }
-                .clipped()
-                .ignoresSafeArea()
-                .accessibilityHidden(true)
+                ToolbarItem(placement: .topBarTrailing) { shareButton }
+            }
         }
+        .preferredColorScheme(.dark)
         .overlay {
-            if showDeleteConfirm {
-                deleteConfirmation
-            }
+            if showDeleteConfirm { deleteConfirmation }
         }
         .navigationBarBackButtonHidden(true)
-        .toolbar(.hidden, for: .navigationBar)
+        .sheet(isPresented: $isEditingSession) { editSessionForm }
         .hidesFloatingTabBar()
         .onAppear {
             if let session {
@@ -223,9 +225,8 @@ struct SessionAnalytics: View {
 
     private var shareIcon: some View {
         Image(systemName: "square.and.arrow.up")
-            .font(.system(size: 20, weight: .semibold))
+            .font(.system(size: 20))
             .foregroundColor(.white)
-            .frame(width: 44, height: 44)
             .contentShape(Rectangle())
             .opacity(shareableVideoURL == nil ? 0.45 : 1)
             .accessibilityLabel("Share session wrap")
@@ -238,25 +239,24 @@ struct SessionAnalytics: View {
     }
 
     private var statsCard: some View {
-        PatternBorderedCard(edges: [.top], cornerRadius: 30) {
-            VStack(spacing: 30) {
-                Spacer().frame(height: 50)
-
-                VStack(spacing: 24) {
-                    HStack {
+        PatternBorderedCard(edges: [.top], cornerRadius: 24, stripHeight: 10) {
+            VStack(spacing: 32) {
+                Color.clear.frame(height: 88)
+                VStack(spacing: 18) {
+                    HStack(spacing: 18) {
                         StatView(title: "Whole Session", value: wholeSessionText)
                         StatView(title: "Focus Duration", value: focusDurationText)
                     }
-                    HStack {
+                    HStack(spacing: 18) {
                         StatView(title: "Distraction Count", value: distractionCountText)
                         StatView(title: "Distracted Duration", value: distractedDurationText)
                     }
                 }
-                .padding(.bottom, 30)
             }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 32)
         }
-        .overlay(alignment: .top) { playPreview.offset(y: -65) }
-        .padding(.top, 70)
+        .overlay(alignment: .top) { playPreview.offset(y: -88) }
     }
 
     private var playPreview: some View {
@@ -274,23 +274,28 @@ struct SessionAnalytics: View {
                         .background(Color.white)
                 }
             }
-            .frame(width: 130, height: 130)
+            .frame(width: 208, height: 208)
             .clipShape(Circle())
-            .overlay(Circle().stroke(Color.black, lineWidth: 3))
+            .shadow(color: .black, radius: 0, y: 3)
+            .overlay {
+                Image("AnalyticsPreviewRing")
+                    .resizable()
+                    .frame(width: 214, height: 214)
+                    .accessibilityHidden(true)
+            }
 
             Button(action: {
                 guard playableVideoURL != nil else { return }
                 isShowingWrappedVideo = true
             }) {
-                Image(systemName: "play.fill")
+                Image(systemName: "arrowtriangle.forward.fill")
                     .font(.system(size: 16, weight: .black))
                     .foregroundColor(.white)
-                    .padding(15)
+                    .frame(width: 48, height: 48)
                     .background(Circle().fill(Color.black))
             }
             .disabled(playableVideoURL == nil)
             .opacity(playableVideoURL == nil ? 0.45 : 1)
-            .offset(x: 5, y: 5)
             .accessibilityLabel("Play session wrap video")
             .accessibilityHint(playableVideoURL == nil ? "The wrap is still finishing" : "Opens the timelapse video for this session")
             .accessibilityInputLabels(["play", "play video", "watch wrap"])
@@ -299,20 +304,33 @@ struct SessionAnalytics: View {
     }
 
     private var detailCard: some View {
-        PatternBorderedCard(edges: [.bottom], cornerRadius: 30) {
-            VStack(alignment: .center, spacing: 16) {
-                Text(displayTitle)
-                    .font(.system(size: 22, weight: .black))
+        PatternBorderedCard(edges: [], cornerRadius: 24) {
+            VStack(spacing: 24) {
+                VStack(spacing: 8) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(displayTitle)
+                            .font(.custom("Special Gothic Expanded One", size: 20))
+                            .multilineTextAlignment(.center)
+                        Button {
+                            editedTitle = session?.title ?? ""
+                            editedSummary = session?.summary ?? ""
+                            isEditingSession = true
+                        } label: {
+                            Image(systemName: "pencil")
+                                .font(.system(size: 16, weight: .heavy))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(session == nil)
+                        .accessibilityLabel("Edit session details")
+                    }
                     .foregroundColor(.black)
-                    .multilineTextAlignment(.center)
-                    .padding(.top, 10)
 
-                Text(displaySummary)
-                    .multilineTextAlignment(.center)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(Color(UIColor.darkGray))
-                    .lineSpacing(4)
-                    .padding(.horizontal, 10)
+                    Text(displaySummary)
+                        .multilineTextAlignment(.center)
+                        .font(.system(size: 13))
+                        .foregroundColor(Color("SessionDetailsBlack80"))
+                        .lineSpacing(2)
+                }
 
                 if savedSnapshots.isEmpty {
                     snapshotsEmptyLabel
@@ -320,9 +338,124 @@ struct SessionAnalytics: View {
                     snapshotRow
                 }
             }
-            .padding(24)
-            .padding(.bottom, 16) // clearance above the bottom checkerboard strip
+            .padding(.horizontal, 20)
+            .padding(.vertical, 32)
         }
+    }
+
+    private var editSessionForm: some View {
+        NavigationStack {
+            Form {
+                TextField("Session title", text: $editedTitle)
+                    .onChange(of: editedTitle) { _, value in
+                        if value.count > 30 { editedTitle = String(value.prefix(30)) }
+                    }
+                TextField("How did it go?", text: $editedSummary, axis: .vertical)
+                    .lineLimit(3...8)
+            }
+            .navigationTitle("Edit session")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { isEditingSession = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save", action: saveEditedDetails)
+                        .disabled(editedTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || session == nil)
+                }
+            }
+            .alert("Could not save changes", isPresented: $showEditError) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Your original session details are safe. Please try again.")
+            }
+        }
+    }
+
+    private func saveEditedDetails() {
+        guard let session else { return }
+        let title = editedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { return }
+        let previousTitle = session.title
+        let previousSummary = session.summary
+        session.title = title
+        session.summary = editedSummary
+        do {
+            try context.save()
+            isEditingSession = false
+        } catch {
+            session.title = previousTitle
+            session.summary = previousSummary
+            showEditError = true
+        }
+    }
+
+    private var distractionsCard: some View {
+        PatternBorderedCard(edges: [.bottom], cornerRadius: 24, stripHeight: 10) {
+            VStack(spacing: 24) {
+                Text("YOUR DISTRACTIONS")
+                    .font(.custom("Special Gothic Expanded One", size: 12))
+                    .foregroundStyle(Color("SessionDetailsBlack"))
+
+                if distractionStat.distractions.isEmpty {
+                    Text("No distractions recorded for this session.")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color("SessionDetailsBlack80"))
+                        .multilineTextAlignment(.center)
+                } else {
+                    VStack(spacing: 0) {
+                        ForEach(distractionStat.distractions) { distraction in
+                            distractionRow(distraction)
+                            if distraction.id != distractionStat.distractions.last?.id {
+                                Divider().overlay(Color.black.opacity(0.2))
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 32)
+        }
+    }
+
+    private func distractionRow(_ distraction: Distraction) -> some View {
+        let token = distraction.tokenData.flatMap { try? JSONDecoder().decode(ApplicationToken.self, from: $0) }
+        let reason = distraction.reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        let duration = session.map { distraction.duration(overlapping: $0) } ?? max(distraction.distractionDuration, 0)
+        return HStack(alignment: .top, spacing: 16) {
+            Group {
+                if let token {
+                    Label(token).labelStyle(.iconOnly)
+                } else {
+                    Image(systemName: "questionmark.app.dashed")
+                        .foregroundStyle(.gray)
+                }
+            }
+            .font(.system(size: 30))
+            .frame(width: 32, height: 32)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(distraction.resolvedAppName ?? "")
+                        .font(.custom("Special Gothic Expanded One", size: 14))
+                    Spacer(minLength: 0)
+                    Text(TimeFormatter.shortDuration(duration))
+                        .font(.system(size: 10))
+                        .fixedSize(horizontal: true, vertical: false)
+                }
+                Text(reason.isEmpty ? "No reason recorded." : reason)
+                    .font(.system(size: 13))
+                    .foregroundStyle(Color.black.opacity(0.8))
+                    .lineSpacing(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .foregroundStyle(.black)
+        }
+        .padding(.vertical, 12)
+        .padding(.trailing, 8)
+        .accessibilityElement(children: .combine)
     }
 
     // No photos → keep this compact so the card doesn't reserve empty space.
@@ -352,23 +485,23 @@ struct SessionAnalytics: View {
                 Spacer(minLength: 0)
             }
         }
-        .frame(height: 140)
-        .padding(.top, 10)
+        .frame(height: 153)
+        .padding(.horizontal, 10)
     }
 
     // A fixed-size clear box owns the layout, so a landscape photo
     // can never stretch the row — the image just fills it and crops.
     private func snapshotTile(image: UIImage, index: Int, width: CGFloat) -> some View {
         Color.clear
-            .frame(width: width, height: 140)
+            .frame(width: width, height: 153)
             .overlay {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFill()
             }
-            .clipShape(RoundedRectangle(cornerRadius: 16))
-            .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.black, lineWidth: 2))
-            .contentShape(RoundedRectangle(cornerRadius: 16))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.black, lineWidth: 1))
+            .contentShape(RoundedRectangle(cornerRadius: 12))
             .accessibilityLabel("Activity snapshot \(index + 1)")
             .accessibilityHint("Opens snapshot full screen")
             .accessibilityAddTraits(.isButton)
@@ -381,26 +514,18 @@ struct SessionAnalytics: View {
         Button {
             withAnimation(.easeInOut(duration: 0.2)) { showDeleteConfirm = true }
         } label: {
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 Image(systemName: "trash")
-                    .font(.system(size: 16, weight: .bold))
+                    .font(.system(size: 14, weight: .bold))
                 Text("DELETE")
-                    .font(.custom("Special Gothic Expanded One", size: 16))
+                    .font(.custom("Special Gothic Expanded One", size: 14))
             }
-            .foregroundColor(Color("ButtonRed"))
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 18)
-            .background(
-                RoundedRectangle(cornerRadius: 30)
-                    .fill(Color.white)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 30)
-                    .stroke(Color("ButtonRed"), lineWidth: 2)
-            )
+            .foregroundStyle(Color("SessionDetailsRed"))
+            .frame(maxWidth: .infinity, minHeight: 48)
+            .background(.white, in: Capsule())
+            .overlay(Capsule().stroke(Color("SessionDetailsRed"), lineWidth: 1))
         }
-        .padding(.horizontal, 20)
-        .padding(.bottom, 30)
+        .buttonStyle(.plain)
         .accessibilityLabel("Delete session")
         .accessibilityHint("Permanently deletes this session and its video")
         .accessibilityInputLabels(["delete", "remove session"])
@@ -486,11 +611,11 @@ struct SessionAnalytics: View {
 
     private func close() {
         if let onClose {
-            // Live post-session flow: this tears the flow down back to Home.
+            // The live flow tears down recording and opens My Sessions.
             onClose()
         } else {
-            // Opened from History: pop this screen and jump the root TabView to Home.
-            NotificationCenter.default.post(name: .returnToHomeTab, object: nil)
+            // Opened from History: pop back to My Sessions.
+            NotificationCenter.default.post(name: .returnToMySessionsTab, object: nil)
             dismiss()
         }
     }
@@ -505,6 +630,8 @@ struct SessionAnalytics: View {
             if let assetId = session.photoAssetId {
                 PhotoLibrarySaver.deleteAsset(withLocalId: assetId)
             }
+            for distraction in distractionStat.distractions { context.delete(distraction) }
+            distractionStat.distractions = []
             context.delete(session)
             try? context.save()
         }
@@ -535,13 +662,12 @@ struct StatView: View {
     var value: String
 
     var body: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 4) {
             Text(title)
                 .font(.system(size: 12))
-                .foregroundColor(Color(UIColor.gray))
-                .kerning(1.2)
+                .foregroundColor(.black.opacity(0.7))
             Text(value)
-                .font(.system(size: 32, weight: .black))
+                .font(.custom("Special Gothic Expanded One", size: 28))
                 .foregroundColor(.black)
         }
         .frame(maxWidth: .infinity)

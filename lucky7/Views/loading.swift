@@ -68,8 +68,8 @@ struct Loading: View {
                     UIApplication.shared.enableTapToDismissKeyboard()
                     loadPendingRecoveryIfNeeded()
                 }
-                .onReceive(NotificationCenter.default.publisher(for: .returnToHomeTab)) { _ in
-                    withAnimation(.easeInOut(duration: 0.2)) { selectedTab = 0 }
+                .onReceive(NotificationCenter.default.publisher(for: .returnToMySessionsTab)) { _ in
+                    withAnimation(.easeInOut(duration: 0.2)) { selectedTab = 1 }
                 }
                 .fullScreenCover(item: $pendingRecoverySession) { recovery in
                     SessionDetails(
@@ -77,10 +77,12 @@ struct Loading: View {
                         onSave: {
                             SessionEndRecovery.clear(recovery.id)
                             pendingRecoverySession = nil
+                            selectedTab = 1
                         },
                         onFlowComplete: {
                             SessionEndRecovery.clear(recovery.id)
                             pendingRecoverySession = nil
+                            selectedTab = 1
                         }
                     )
                 }

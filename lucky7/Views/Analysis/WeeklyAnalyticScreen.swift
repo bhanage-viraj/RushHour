@@ -227,7 +227,7 @@ struct WeeklyAnalyticScreen: View {
             if let token = decodeToken(distraction.tokenData) {
                 var entry = byToken[token] ?? (resolvedName(distraction), 0)
                 entry.duration += duration
-                if entry.name == "App" { entry.name = resolvedName(distraction) }
+                if entry.name.isEmpty { entry.name = resolvedName(distraction) }
                 byToken[token] = entry
             } else {
                 byName[resolvedName(distraction), default: 0] += duration
@@ -253,8 +253,7 @@ struct WeeklyAnalyticScreen: View {
     }
 
     private func resolvedName(_ distraction: Distraction) -> String {
-        if let name = distraction.appDisplayName, !name.isEmpty { return name }
-        return distraction.appOpened.isEmpty ? "App" : distraction.appOpened
+        distraction.resolvedAppName ?? ""
     }
 
     /// Real app icon from the Screen Time token, with a neutral fallback for
@@ -271,16 +270,6 @@ struct WeeklyAnalyticScreen: View {
                 .font(.system(size: 30))
                 .foregroundColor(.gray)
                 .frame(width: 36, height: 36)
-        }
-    }
-
-    /// Real app name from the token, falling back to the stored display name.
-    @ViewBuilder
-    private func appName(for app: DistractingApp) -> some View {
-        if let token = app.token {
-            Label(token).labelStyle(.titleOnly)
-        } else {
-            Text(app.name)
         }
     }
 
@@ -534,7 +523,7 @@ struct WeeklyAnalyticScreen: View {
 
                                                     appIcon(for: app)
 
-                                                    appName(for: app)
+                                                    Text(app.name)
                                                         .font(.custom("Special Gothic Expanded One", size: 15))
                                                         .foregroundColor(.black)
                                                         .lineLimit(1)

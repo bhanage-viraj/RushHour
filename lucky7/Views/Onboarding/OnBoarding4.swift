@@ -48,30 +48,12 @@ struct OnBoarding4: View {
         }
         .padding(.horizontal, 20)
         .padding(.top, 24)
-        .background { background }
+        .background { OnboardingBackground() }
         .navigationBarBackButtonHidden()
         .toolbar(.hidden, for: .navigationBar)
     }
 
     // MARK: - Chrome
-
-    private var background: some View {
-        ZStack {
-            Color("CanvasBlue")
-                .ignoresSafeArea()
-
-            VStack(spacing: 0) {
-                Spacer()
-                Image("PatternBackground")
-                    .resizable()
-                    .scaledToFill()
-                    .ignoresSafeArea()
-                    .offset(y: 400)
-            }
-            .ignoresSafeArea()
-        }
-        .accessibilityHidden(true)
-    }
 
     private var titleCard: some View {
         PatternBorderedCard(edges: [.top], cornerRadius: 28) {

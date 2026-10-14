@@ -484,10 +484,10 @@ struct RecordingPage: View {
         }
 
         .fullScreenCover(isPresented: $showFinishSessionFlow) {
-            FinishSessionScreen(onFlowComplete: exitToHomeFromSessionFlow)
+            FinishSessionScreen(onFlowComplete: completeSessionFlow)
         }
         .fullScreenCover(isPresented: $showCrashSession) {
-            CrashSessionScreen(onFlowComplete: exitToHomeFromSessionFlow)
+            CrashSessionScreen(onFlowComplete: completeSessionFlow)
         }
         // jailbreak: reason sheet over the recording when a break was taken on the shield
         .sheet(item: $pendingPrompt) { prompt in
@@ -784,6 +784,11 @@ struct RecordingPage: View {
             for d in all where d.endTime == nil { d.endTime = .now }
             try? modelContext.save()
         }
+    }
+
+    private func completeSessionFlow() {
+        exitToHomeFromSessionFlow()
+        NotificationCenter.default.post(name: .returnToMySessionsTab, object: nil)
     }
 
     private func exitToHomeFromSessionFlow() {

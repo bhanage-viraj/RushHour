@@ -71,26 +71,30 @@ struct OnboardingScreenTemplate<Content: View>: View {
             .padding(.horizontal, 20)
             .padding(.top, 12)
             .padding(.bottom, 20)
-            .background(Color("CanvasBlue").ignoresSafeArea(edges: .bottom))
         }
-        .background {
-            Color("CanvasBlue")
-                .overlay(alignment: .bottom) {
-                    Image("PatternBackground")
-                        .resizable()
-                        .scaledToFill()
-                        .frame(height: 250)
-                        .clipped()
-                        .allowsHitTesting(false)
-                }
-                .ignoresSafeArea()
-                .accessibilityHidden(true)
-        }
+        .background { OnboardingBackground() }
         .toolbar(.hidden, for: .navigationBar)
         .accessibilityElement(children: .contain)
     }
 
 
+}
+
+struct OnboardingBackground: View {
+    var body: some View {
+        GeometryReader { geometry in
+            Color("CanvasBlue")
+                .overlay {
+                    Image("PatternBackground")
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .clipped()
+                }
+        }
+        .ignoresSafeArea()
+        .accessibilityHidden(true)
+    }
 }
 
 /// Shared by the explanation screens and the final app-selection step.
