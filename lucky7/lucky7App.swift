@@ -49,9 +49,8 @@ extension Notification.Name {
     /// re-checks for a pending break even if scenePhase is already .active.
     static let shieldReturnTapped = Notification.Name("rushhour.shieldReturnTapped")
 
-    /// Posted when a screen wants the root TabView to jump back to the Home (Rush Hour) tab,
-    /// e.g. closing Session Analytics opened from History.
-    static let returnToHomeTab = Notification.Name("rushhour.returnToHomeTab")
+    /// Posted when a session flow closes and the root view should show My Sessions.
+    static let returnToMySessionsTab = Notification.Name("rushhour.returnToMySessionsTab")
 }
 
 // Registers as the notification delegate so the shield-return notification is an actual return

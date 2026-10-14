@@ -40,6 +40,7 @@ final class SessionRecordingViewModel: ObservableObject {
     private var activeTitleExportShouldSaveToPhotos = false
     private var completedTitleExportTitle: String?
     private var completedTitleExportSavedToPhotos = false
+    private var exportGeneration = UUID()
     private var titleExportRetryTask: Task<Void, Never>?
     // Kept for final-export recovery and recap generation. Share styling never reads raw.
     private var retainedRawURL: URL?
@@ -310,6 +311,7 @@ final class SessionRecordingViewModel: ObservableObject {
 
     func resetForNewSession() {
         log("resetForNewSession final=\(finalVideoURL?.lastPathComponent ?? "nil") raw=\(rawClipURL?.lastPathComponent ?? "nil")")
+        exportGeneration = UUID()
         ScreenWakeLock.release()
         isRecording = false
         isCapturePaused = false
@@ -344,6 +346,14 @@ final class SessionRecordingViewModel: ObservableObject {
         completedTitleExportSavedToPhotos = false
         stopCompletions.removeAll()
         timelapseManager.resetCapturePause()
+    }
+
+    func discardCurrentSession() {
+        let source = retainedRawURL ?? rawClipURL
+        let final = finalVideoURL
+        resetForNewSession()
+        if let source { try? FileManager.default.removeItem(at: source) }
+        if let final { try? FileManager.default.removeItem(at: final) }
     }
 
     func restoreExportContext(rawURL: URL?, finalURL: URL?) {
@@ -620,12 +630,18 @@ final class SessionRecordingViewModel: ObservableObject {
         statusMessage = "Generating your Wrap…"
         ScreenWakeLock.setActive(true)
         log("finalExport start raw=\(raw.lastPathComponent) frames=\(lastExportFrameCount)")
+        let generation = exportGeneration
         exportEngine.generateWrappedVideo(
             rawVideoURL: raw,
             capturedFrameCount: lastExportFrameCount
         ) { [weak self] finalURL in
             Task { @MainActor in
                 guard let self else { return }
+                // An export finishing after discard must not revive that session.
+                guard generation == self.exportGeneration else {
+                    if let finalURL { try? FileManager.default.removeItem(at: finalURL) }
+                    return
+                }
                 let finishedTitle = self.activeTitleExportTitle ?? title
                 let callbacks = self.activeTitleExportCompletions
                 let shouldSaveToPhotos = self.activeTitleExportShouldSaveToPhotos
