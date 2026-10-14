@@ -52,5 +52,5 @@ Sources: [App identity](https://developer.apple.com/documentation/xcode/preparin
 - Debug and Release resolve the original production bundle IDs and App Group.
 - Dev installed and launched on the iOS 27 simulator beside the production app; its data container differed and the production container path stayed unchanged.
 - All 12 existing break checks and the camera geometry/segment-export checks passed.
-- TestFlight upload is not complete: Apple rejected the upload because no App Store Connect app record exists for `com.andrianangg.Rush-Hour.dev`. Create that separate record, then retry upload.
+- TestFlight upload succeeded on 14 October 2026 after the user created the separate app record. Apple accepted version 1.0, build 3, for `com.andrianangg.Rush-Hour.dev` and reported that the uploaded package is processing. Tester-group availability and external Beta App Review remain separate steps.
 - Physical-device coexistence and TestFlight install/update behavior have not been checked.

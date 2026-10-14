@@ -16,7 +16,7 @@ No new dependency, duplicated app target, schema migration or CI automation. Tim
 - [x] App and extension bundle IDs, group entitlements and signatures verified; production Debug/Release identities unchanged.
 - [x] Dev installs beside production in the simulator with separate data containers; production container unchanged.
 - [x] Existing 12 break-state checks and camera geometry/segment-export checks pass; whitespace check passes.
-- [ ] TestFlight upload: currently blocked by the missing separate App Store Connect app record.
+- [x] TestFlight upload: Apple accepted version 1.0 (3) on 14 October 2026 and reported package processing after the separate app record was created.
 - [ ] Physical-device coexistence and TestFlight install/update behavior.
 
 Run commands, identifiers and Apple account setup are documented in [development-builds.md](docs/development-builds.md). The Account Holder's capabilities must support the Dev identifiers; a development signature alone is insufficient for TestFlight. Distribution export was verified, but TestFlight processing and external Beta App Review are separate steps.
