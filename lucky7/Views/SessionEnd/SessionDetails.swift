@@ -15,6 +15,9 @@ struct SessionDetails: View {
     var videoFrames: [UIImage] = []
     var onSave: (() -> Void)? = nil
     var onFlowComplete: (() -> Void)? = nil
+    /// Shows a back button (needs a NavigationStack around this screen). Left nil
+    /// where there's nothing to go back to, e.g. the relaunch recovery prompt.
+    var onBack: (() -> Void)? = nil
 
     @Environment(\.modelContext) private var context
     @EnvironmentObject private var sessionRecording: SessionRecordingViewModel
@@ -32,12 +35,7 @@ struct SessionDetails: View {
     @State private var saveErrorMessage = ""
     @State private var backgroundWrapTask: Task<Void, Never>?
 
-    // Drives the darker "active" outline on whichever field is in use.
-    @FocusState private var focusedField: Field?
-    private enum Field { case title, description }
-
     private let maxSnapshots = 6
-    private let maxTitleLength = 30
     private let staleRollupSliceMaxSeconds: TimeInterval = 5
 
     // filtering only 3 frames for snapshots
@@ -83,29 +81,29 @@ struct SessionDetails: View {
     }
 
     var body: some View {
-        ZStack {
-            Color("CanvasBlue")
-                .ignoresSafeArea()
-
-            Image("PatternBackground")
-                .resizable()
-                .scaledToFill()
-                .ignoresSafeArea()
-                .offset(y: -30)
-                .accessibilityDecorative()
-
-            ScrollView {
-                VStack(spacing: 24) {
-                    sessionCard
-                        .disabled(isSaving)
-                        .opacity(isSaving ? 0.6 : 1)
-                        .animation(.easeInOut(duration: 0.2), value: isSaving)
-                    saveButton
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 24)
-                .padding(.bottom, 40)
+        ScrollView {
+            VStack(spacing: 24) {
+                sessionCard
+                    .disabled(isSaving)
+                    .opacity(isSaving ? 0.6 : 1)
+                    .animation(.easeInOut(duration: 0.2), value: isSaving)
+                saveButton
             }
+            .padding(.horizontal, 20)
+            .padding(.top, 24)
+            .padding(.bottom, 40)
+        }
+        .background {
+            Color("CanvasBlue")
+                .overlay {
+                    Image("PatternBackground")
+                        .resizable()
+                        .scaledToFill()
+                        .offset(y: -30)
+                }
+                .clipped()
+                .ignoresSafeArea()
+                .accessibilityDecorative()
         }
         .onAppear {
             loadSessionDraft()
@@ -119,6 +117,21 @@ struct SessionDetails: View {
             Button("OK", role: .cancel) { }
         } message: {
             Text(saveErrorMessage)
+        }
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarColorScheme(.dark, for: .navigationBar)   // white glyphs on the blue backdrop
+        .toolbar {
+            if let onBack {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(action: onBack) {
+                        Image(systemName: "chevron.left")
+                    }
+                    .disabled(isSaving)
+                    .accessibilityLabel("Back")
+                    .accessibilityHint("Asks whether to discard this session")
+                    .accessibilityInputLabels(["back", "go back"])
+                }
+            }
         }
     }
 
@@ -134,43 +147,7 @@ struct SessionDetails: View {
                     .foregroundColor(.black)
                     .multilineTextAlignment(.center)
 
-                LabeledField(title: "TITLE", isRequired: true) {
-                    TextField("", text: $sessionTitle)
-                        .font(.system(size: 15))
-                        .foregroundColor(.black)
-                        .fixedPlaceholder("Give your session a title", isEmpty: sessionTitle.isEmpty, font: .system(size: 15))
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 16)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .focused($focusedField, equals: .title)
-                        .formFieldStyle(isActive: focusedField == .title)
-                        .accessibilityLabel("Session title")
-                        .accessibilityHint("Up to \(maxTitleLength) characters")
-                        .onChange(of: sessionTitle) { _, newValue in
-                            if newValue.count > maxTitleLength {
-                                sessionTitle = String(newValue.prefix(maxTitleLength))
-                            }
-                        }
-                }
-
-                LabeledField(title: "HOW DID IT GO?") {
-                    TextField(
-                        "",
-                        text: $sessionDescription,
-                        axis: .vertical
-                    )
-                    .lineLimit(3...8)
-                    .font(.system(size: 15))
-                    .foregroundColor(.black)
-                    .fixedPlaceholder("How do you feel during and after the session?", isEmpty: sessionDescription.isEmpty, font: .system(size: 15), alignment: .topLeading)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
-                    .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
-                    .focused($focusedField, equals: .description)
-                    .formFieldStyle(isActive: focusedField == .description)
-                    .accessibilityLabel("Session description")
-                    .accessibilityHint("How you felt during and after the session")
-                }
+                SessionTextFields(title: $sessionTitle, description: $sessionDescription)
 
                 LabeledField(title: "ACTIVITIES SNAPSHOTS") {
                     snapshotsField
@@ -573,6 +550,61 @@ struct LabeledField<Content: View>: View {
             content
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// The TITLE + "HOW DID IT GO?" field pair, shared by the session-end form and
+/// `EditSessionScreen` so both look the same and enforce the same title limit.
+struct SessionTextFields: View {
+    @Binding var title: String
+    @Binding var description: String
+
+    // Drives the darker "active" outline on whichever field is in use.
+    @FocusState private var focusedField: Field?
+    private enum Field { case title, description }
+
+    private let maxTitleLength = 30
+
+    var body: some View {
+        VStack(spacing: 22) {
+            LabeledField(title: "TITLE", isRequired: true) {
+                TextField("", text: $title)
+                    .font(.system(size: 15))
+                    .foregroundColor(.black)
+                    .fixedPlaceholder("Give your session a title", isEmpty: title.isEmpty, font: .system(size: 15))
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .focused($focusedField, equals: .title)
+                    .formFieldStyle(isActive: focusedField == .title)
+                    .accessibilityLabel("Session title")
+                    .accessibilityHint("Up to \(maxTitleLength) characters")
+                    .onChange(of: title) { _, newValue in
+                        if newValue.count > maxTitleLength {
+                            title = String(newValue.prefix(maxTitleLength))
+                        }
+                    }
+            }
+
+            LabeledField(title: "HOW DID IT GO?") {
+                TextField(
+                    "",
+                    text: $description,
+                    axis: .vertical
+                )
+                .lineLimit(3...8)
+                .font(.system(size: 15))
+                .foregroundColor(.black)
+                .fixedPlaceholder("How do you feel during and after the session?", isEmpty: description.isEmpty, font: .system(size: 15), alignment: .topLeading)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
+                .focused($focusedField, equals: .description)
+                .formFieldStyle(isActive: focusedField == .description)
+                .accessibilityLabel("Session description")
+                .accessibilityHint("How you felt during and after the session")
+            }
+        }
     }
 }
 

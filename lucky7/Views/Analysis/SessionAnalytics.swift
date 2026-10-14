@@ -51,6 +51,11 @@ struct SessionAnalytics: View {
         videoFrames.first ?? extractedThumbnail
     }
 
+    /// Breaks taken during this session (each with the reason typed on the break form).
+    private var sessionBreaks: [Distraction] {
+        distractionStat.distractions.sorted { $0.startTime < $1.startTime }
+    }
+
     private var displayTitle: String {
         let t = session?.title ?? ""
         return t.isEmpty ? "Untitled session" : t
@@ -133,29 +138,11 @@ struct SessionAnalytics: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Button(action: close) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 20, weight: .bold))
-                        .foregroundColor(.white)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .accessibilityLabel("Close")
-                .accessibilityHint("Closes session analytics")
-                .accessibilityInputLabels(["close", "done", "exit"])
-
-                Spacer()
-
-                shareButton
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 10)
-
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 24) {
                     statsCard
                     detailCard
+                    DistractionLogCard(distractions: sessionBreaks, session: session)
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 24)
@@ -179,8 +166,12 @@ struct SessionAnalytics: View {
                 deleteConfirmation
             }
         }
-        .navigationBarBackButtonHidden(true)
-        .toolbar(.hidden, for: .navigationBar)
+        // Pushed from History, the system back button pops this screen. The live
+        // post-session flow has nothing to pop, so it gets its own back button instead.
+        .navigationBarBackButtonHidden(onClose != nil)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar { toolbarContent }
+        .toolbarColorScheme(.dark, for: .navigationBar)   // white glyphs on the blue backdrop
         .hidesFloatingTabBar()
         .onAppear {
             if let session {
@@ -194,7 +185,9 @@ struct SessionAnalytics: View {
             await loadThumbnailIfNeeded()
         }
         .fullScreenCover(isPresented: $isShowingWrappedVideo) {
-            WrappedVideoScreen(kind: .session(sessionId), videoFrames: videoFrames)
+            NavigationStack {
+                WrappedVideoScreen(kind: .session(sessionId), videoFrames: videoFrames, isModal: true)
+            }
         }
         .fullScreenCover(isPresented: $isShowingShareComposer) {
             if let sourceURL = shareableVideoURL {
@@ -210,31 +203,43 @@ struct SessionAnalytics: View {
         }
     }
 
+    // MARK: - Toolbar
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        if onClose != nil {
+            ToolbarItem(placement: .topBarLeading) {
+                Button(action: close) {
+                    Image(systemName: "chevron.left")
+                }
+                .disabled(showDeleteConfirm)
+                .accessibilityLabel("Back")
+                .accessibilityHint("Returns to Home")
+                .accessibilityInputLabels(["back", "close", "done"])
+            }
+        }
+
+        ToolbarItem(placement: .topBarTrailing) {
+            shareButton
+        }
+    }
+
     // MARK: - Subviews
+
     private var shareButton: some View {
         Button {
             isShowingShareComposer = true
         } label: {
-            shareIcon
+            Image(systemName: "square.and.arrow.up")
         }
-        .buttonStyle(.plain)
-        .disabled(shareableVideoURL == nil)
-    }
-
-    private var shareIcon: some View {
-        Image(systemName: "square.and.arrow.up")
-            .font(.system(size: 20, weight: .semibold))
-            .foregroundColor(.white)
-            .frame(width: 44, height: 44)
-            .contentShape(Rectangle())
-            .opacity(shareableVideoURL == nil ? 0.45 : 1)
-            .accessibilityLabel("Share session wrap")
-            .accessibilityHint(
-                shareableVideoURL == nil
-                    ? "The final wrap video is unavailable"
-                    : "Opens template and sharing options for this session"
-            )
-            .accessibilityInputLabels(["share", "share session", "export"])
+        .disabled(shareableVideoURL == nil || showDeleteConfirm)
+        .accessibilityLabel("Share session wrap")
+        .accessibilityHint(
+            shareableVideoURL == nil
+                ? "The final wrap video is unavailable"
+                : "Opens template and sharing options for this session"
+        )
+        .accessibilityInputLabels(["share", "share session", "export"])
     }
 
     private var statsCard: some View {
@@ -299,13 +304,18 @@ struct SessionAnalytics: View {
     }
 
     private var detailCard: some View {
-        PatternBorderedCard(edges: [.bottom], cornerRadius: 30) {
+        // No checkerboard strip here: the distractions card below closes the stack.
+        PatternBorderedCard(edges: [], cornerRadius: 30) {
             VStack(alignment: .center, spacing: 16) {
-                Text(displayTitle)
-                    .font(.system(size: 22, weight: .black))
-                    .foregroundColor(.black)
-                    .multilineTextAlignment(.center)
-                    .padding(.top, 10)
+                HStack(spacing: 4) {
+                    Text(displayTitle)
+                        .font(.system(size: 22, weight: .black))
+                        .foregroundColor(.black)
+                        .multilineTextAlignment(.center)
+
+                    editButton
+                }
+                .padding(.top, 2) // the 44pt tap target already adds height above the title
 
                 Text(displaySummary)
                     .multilineTextAlignment(.center)
@@ -321,8 +331,29 @@ struct SessionAnalytics: View {
                 }
             }
             .padding(24)
-            .padding(.bottom, 16) // clearance above the bottom checkerboard strip
         }
+    }
+
+    private var editButton: some View {
+        NavigationLink {
+            if let session {
+                EditSessionScreen(
+                    session: session,
+                    previewFrames: thumbnailImage.map { [$0] } ?? []
+                )
+            }
+        } label: {
+            Image(systemName: "pencil")
+                .font(.system(size: 18, weight: .bold))
+                .foregroundColor(.black)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(session == nil)
+        .accessibilityLabel("Edit title and description")
+        .accessibilityHint("Opens an editor for this session's title and description")
+        .accessibilityInputLabels(["edit", "edit session", "rename"])
     }
 
     // No photos → keep this compact so the card doesn't reserve empty space.
@@ -497,16 +528,7 @@ struct SessionAnalytics: View {
 
     private func deleteSession() {
         if let session = session {
-            // Free the video files this session left in app storage.
-            WrapStorage.delete(path: session.wrappedVideoPath)
-            WrapStorage.delete(path: session.rawClipPath)
-            // Remove the copy saved to the user's Photos library (iOS shows its own
-            // confirmation). Older sessions saved before this won't have an id.
-            if let assetId = session.photoAssetId {
-                PhotoLibrarySaver.deleteAsset(withLocalId: assetId)
-            }
-            context.delete(session)
-            try? context.save()
+            SessionDeletion.delete(session, context: context)
         }
         close()
     }
@@ -610,6 +632,8 @@ struct SnapshotViewer: View {
 }
 
 #Preview {
-    SessionAnalytics(sessionId: UUID(), videoFrames: [])
-        .modelContainer(for: Session.self, inMemory: true)
+    NavigationStack {
+        SessionAnalytics(sessionId: UUID(), videoFrames: [])
+    }
+    .modelContainer(for: [Session.self, Distraction.self], inMemory: true)
 }

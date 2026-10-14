@@ -27,6 +27,7 @@ struct FinishSessionScreen: View {
     @State private var sessionId: UUID?
     @State private var hasCompletedFlow = false
     @State private var previewWaitTimedOut = false
+    @State private var showDiscardConfirm = false
 
     private var canAdvanceToDetails: Bool {
         !videoFrames.isEmpty || previewWaitTimedOut
@@ -54,27 +55,46 @@ struct FinishSessionScreen: View {
                     }
             case .details:
                 if let sessionId {
-                    SessionDetails(
-                        sessionId: sessionId,
-                        videoFrames: videoFrames,
-                        onSave: {
-                            withAnimation(stepAnimation) {
-                                step = .analytics
+                    // NavigationStack only to host the toolbar's Liquid Glass buttons.
+                    NavigationStack {
+                        SessionDetails(
+                            sessionId: sessionId,
+                            videoFrames: videoFrames,
+                            onSave: {
+                                withAnimation(stepAnimation) {
+                                    step = .analytics
+                                }
+                            },
+                            onFlowComplete: completeFlow,
+                            onBack: {
+                                withAnimation(.easeInOut(duration: 0.2)) { showDiscardConfirm = true }
                             }
-                        },
-                        onFlowComplete: completeFlow
-                    )
+                        )
+                    }
                     .transition(stepTransition)
                 }
             case .analytics:
                 if let sessionId {
-                    SessionAnalytics(
-                        sessionId: sessionId,
-                        videoFrames: videoFrames,
-                        onClose: completeFlow
-                    )
+                    NavigationStack {
+                        SessionAnalytics(
+                            sessionId: sessionId,
+                            videoFrames: videoFrames,
+                            onClose: completeFlow
+                        )
+                    }
                     .transition(stepTransition)
                 }
+            }
+
+            if showDiscardConfirm {
+                DiscardSessionConfirm(
+                    onDiscard: discardSession,
+                    onCancel: {
+                        withAnimation(.easeInOut(duration: 0.2)) { showDiscardConfirm = false }
+                    }
+                )
+                .transition(.opacity)
+                .zIndex(1)
             }
         }
         .animation(stepAnimation, value: step)
@@ -246,6 +266,21 @@ struct FinishSessionScreen: View {
         sessionId = id
         SessionEndRecovery.markPending(id)
         RecordingDiagnostics.log("FinishSession create session=\(id) wrapped=\(session.wrappedVideoPath ?? "nil") raw=\(session.rawClipPath ?? "nil")")
+    }
+
+    /// Back on the details form → delete everything this session recorded and
+    /// return to the timer setup on Home.
+    private func discardSession() {
+        showDiscardConfirm = false
+        if let sessionId {
+            var descriptor = FetchDescriptor<Session>(predicate: #Predicate { $0.id == sessionId })
+            descriptor.fetchLimit = 1
+            if let session = try? context.fetch(descriptor).first {
+                SessionDeletion.delete(session, context: context)
+            }
+            RecordingDiagnostics.log("SessionEnd discarded session=\(sessionId)")
+        }
+        completeFlow()
     }
 
     private func completeFlow() {

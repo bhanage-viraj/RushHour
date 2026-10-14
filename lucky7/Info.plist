@@ -18,7 +18,5 @@
 	<array>
 		<string>SpecialGothicExpandedOne-Regular.ttf</string>
 	</array>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>We remove a session's saved wrap from your Photos when you delete that session.</string>
 </dict>
 </plist>

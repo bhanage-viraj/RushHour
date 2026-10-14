@@ -7,7 +7,6 @@ import SwiftUI
 import UIKit
 
 struct WrapShareComposer: View {
-    private static let sharePanelHeight: CGFloat = 266
     private static let cardSize = CGSize(width: 255.84, height: 459.2)
     private static let cardSpacing: CGFloat = 26.24
     private static let cardTopPadding: CGFloat = 10
@@ -33,34 +32,26 @@ struct WrapShareComposer: View {
     var body: some View {
         GeometryReader { proxy in
             ZStack {
+                // As an overlay, the aspect-filled pattern can't grow the ZStack past the
+                // screen and push the share panel below the bottom edge on shorter devices.
                 Color.wrappedShareBlue
-                    .ignoresSafeArea()
-
-                Image("PatternBackground")
-                    .resizable()
-                    .scaledToFill()
+                    .overlay {
+                        Image("PatternBackground")
+                            .resizable()
+                            .scaledToFill()
+                    }
                     .ignoresSafeArea()
 
                 VStack(spacing: 0) {
                     header
                         .frame(height: 48)
 
-                    templateCarousel(
-                        in: CGSize(
-                            width: proxy.size.width,
-                            height: max(
-                                proxy.size.height
-                                    + proxy.safeAreaInsets.bottom
-                                    - 48
-                                    - Self.sharePanelHeight,
-                                180
-                            )
-                        )
-                    )
-                    .frame(maxHeight: .infinity)
+                    // The panel sizes to its content (and Dynamic Type); the carousel takes the rest.
+                    GeometryReader { carouselProxy in
+                        templateCarousel(in: carouselProxy.size)
+                    }
 
-                    sharePanel
-                        .frame(height: Self.sharePanelHeight)
+                    sharePanel(bottomInset: proxy.safeAreaInsets.bottom)
                 }
                 .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
 
@@ -144,7 +135,8 @@ struct WrapShareComposer: View {
     private func templateCarousel(in available: CGSize) -> some View {
         let cardSize = fittedCardSize(in: available)
         let sideMargin = max((available.width - cardSize.width) / 2, 0)
-        let cardTopPadding = min(Self.cardTopPadding, max((available.height - cardSize.height) / 2, 0))
+        // Center vertically so space left by the content-sized share panel is split evenly.
+        let cardTopPadding = max((available.height - cardSize.height) / 2, 0)
 
         return ScrollView(.horizontal) {
             LazyHStack(alignment: .top, spacing: Self.cardSpacing) {
@@ -174,14 +166,18 @@ struct WrapShareComposer: View {
         }
     }
 
-    private var sharePanel: some View {
+    private func sharePanel(bottomInset: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("SHARE TO")
-                .font(.system(size: 14, weight: .bold))
-                .foregroundStyle(.black)
-                .frame(height: 13, alignment: .top)
+            SharePanelTitle()
 
-            HStack(spacing: 0) {
+            HStack(alignment: .top, spacing: 8) {
+                ShareUtilityButton(
+                    title: "Share",
+                    systemImage: "square.and.arrow.up",
+                    action: viewModel.shareSelected
+                )
+                .frame(maxWidth: .infinity)
+                
                 ShareDestinationButton(
                     title: "Instagram\nStory",
                     assetName: "InstagramShareIcon",
@@ -193,13 +189,6 @@ struct WrapShareComposer: View {
                     title: "Messages",
                     assetName: "MessagesShareIcon",
                     action: viewModel.shareSelectedToMessages
-                )
-                .frame(maxWidth: .infinity)
-
-                ShareUtilityButton(
-                    title: "Share",
-                    systemImage: "square.and.arrow.up",
-                    action: viewModel.shareSelected
                 )
                 .frame(maxWidth: .infinity)
 
@@ -215,8 +204,12 @@ struct WrapShareComposer: View {
         }
         .padding(.horizontal, 20)
         .padding(.top, 24)
-        .padding(.bottom, 32)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // Clear the home indicator; keep a comfortable margin on devices without one.
+        .padding(.bottom, max(bottomInset + 8, 24))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true)
+        // Largest size at which every label fits a four-column row on a 375pt-wide screen.
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .background(Color.white)
         .clipShape(
             UnevenRoundedRectangle(
@@ -328,24 +321,12 @@ private struct ShareDestinationButton: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 8) {
+            ShareActionLabel(title: title) {
                 Image(assetName)
                     .renderingMode(.original)
                     .resizable()
                     .scaledToFit()
-                    .frame(width: 48, height: 48)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-                Text(title)
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(Color.black.opacity(0.8))
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(height: 32, alignment: .top)
             }
-            .frame(width: 68)
-            .contentShape(Rectangle())
         }
         .buttonStyle(ShareActionButtonStyle())
         .accessibilityLabel(title.replacingOccurrences(of: "\n", with: " "))
@@ -359,25 +340,57 @@ private struct ShareUtilityButton: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 8) {
+            ShareActionLabel(title: title) {
+                // Same tile footprint as the app icons so the row reads as one set.
                 Image(systemName: systemImage)
-                    .font(.system(size: 24, weight: .regular))
+                    .font(.system(size: 22, weight: .medium))
                     .foregroundStyle(Color.black.opacity(0.8))
-                    .frame(width: 48, height: 48)
-
-                Text(title)
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(Color.black.opacity(0.8))
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(height: 32, alignment: .top)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.black.opacity(0.06))
             }
-            .frame(width: 68)
-            .contentShape(Rectangle())
         }
         .buttonStyle(ShareActionButtonStyle())
         .accessibilityLabel(title.replacingOccurrences(of: "\n", with: " "))
+    }
+}
+
+/// Icon tile above a two-line label. Every label reserves two lines so icons and
+/// first-line baselines stay aligned whether a title wraps or not.
+private struct ShareActionLabel<Icon: View>: View {
+    private let iconSize: CGFloat = 56
+    private let iconCornerRadius: CGFloat = 14
+
+    let title: String
+    @ViewBuilder let icon: Icon
+    @ScaledMetric(relativeTo: .caption) private var titleSize: CGFloat = 12
+
+    var body: some View {
+        VStack(spacing: 8) {
+            icon
+                .frame(width: iconSize, height: iconSize)
+                .clipShape(RoundedRectangle(cornerRadius: iconCornerRadius, style: .continuous))
+
+            Text(title)
+                .font(.system(size: titleSize, weight: .regular))
+                .foregroundStyle(Color.black.opacity(0.8))
+                .multilineTextAlignment(.center)
+                .lineLimit(2, reservesSpace: true)
+                .minimumScaleFactor(0.8)
+        }
+        // Fill the column so the whole cell is the hit area.
+        .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
+    }
+}
+
+private struct SharePanelTitle: View {
+    @ScaledMetric(relativeTo: .subheadline) private var size: CGFloat = 14
+
+    var body: some View {
+        Text("SHARE TO")
+            .font(.system(size: size, weight: .bold))
+            .foregroundStyle(.black)
+            .accessibilityAddTraits(.isHeader)
     }
 }
 
@@ -604,6 +617,18 @@ private struct CheckerboardBackground: View {
             }
         }
     }
+}
+
+// No real video in previews, so the cards show their loading placeholder.
+#Preview("Share composer") {
+    WrapShareComposer(
+        sourceURL: URL(fileURLWithPath: "/dev/null"),
+        metadata: WrapShareMetadata(
+            title: "Morning Session Rush!",
+            duration: "3h 20m",
+            date: "26 May 2026"
+        )
+    )
 }
 
 #Preview("Portrait wrap templates") {
