@@ -438,7 +438,7 @@ struct SessionAnalytics: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(distraction.resolvedAppName ?? "")
+                    Text(distraction.resolvedAppName ?? "Blocked App")
                         .font(.custom("Special Gothic Expanded One", size: 14))
                     Spacer(minLength: 0)
                     Text(TimeFormatter.shortDuration(duration))

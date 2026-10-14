@@ -887,7 +887,7 @@ struct RecordingPage: View {
     private func endSessionEarly() {
         recLog("endSessionEarly")
         SessionNotifications.cancelAwayNudges()
-        sessionTimer.pause()
+        sessionTimer.end()
         #if os(iOS)
         focusController.release()   // lift the shield the moment they end, not after the recap
         #endif

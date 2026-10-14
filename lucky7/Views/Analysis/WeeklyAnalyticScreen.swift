@@ -227,7 +227,7 @@ struct WeeklyAnalyticScreen: View {
             if let token = decodeToken(distraction.tokenData) {
                 var entry = byToken[token] ?? (resolvedName(distraction), 0)
                 entry.duration += duration
-                if entry.name.isEmpty { entry.name = resolvedName(distraction) }
+                if entry.name == "Blocked App" { entry.name = resolvedName(distraction) }
                 byToken[token] = entry
             } else {
                 byName[resolvedName(distraction), default: 0] += duration
@@ -253,7 +253,7 @@ struct WeeklyAnalyticScreen: View {
     }
 
     private func resolvedName(_ distraction: Distraction) -> String {
-        distraction.resolvedAppName ?? ""
+        distraction.resolvedAppName ?? "Blocked App"
     }
 
     /// Real app icon from the Screen Time token, with a neutral fallback for

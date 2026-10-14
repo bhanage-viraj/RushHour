@@ -11,15 +11,16 @@ The completed session flow needs the supplied Figma Details/discard designs, a r
 | Details | No back/discard confirmation flow | Users could not leave through the requested confirmation |
 | Session exit | Root notification selected Home | Closing a completed session missed My Sessions |
 | Analytics | Reasons had no display; token titles bypassed stored names | Individual reasons and reliable app names were unavailable |
+| Session timing | Start reconstructed from countdown; end captured after export | Paused breaks could fall outside the saved session window and show 0s |
 | Onboarding | Pattern limited to a bottom strip, with an opaque footer | Incomplete dotted background |
 | Home | Independent glow coordinates; complex preview-instrumented accessibility expression | Glow offset and Canvas compiler timeout |
 
 ## Changes
 
 1. Apply the Details and saved-session analytics Figma layouts using existing card components and new static assets. The back arrow presents a native discard sheet while the underlying page darkens in place. Cancel keeps the draft; discard saves database deletion before removing media. An export generation guard prevents a late export from reviving a discarded session. Review the deletion and late-export paths carefully.
-2. Route completed, early-ended and recovered session flows to My Sessions. Ordinary recording cancellation retains its existing route.
+2. Route completed, early-ended and recovered session flows to My Sessions. Ordinary recording cancellation retains its existing route. Record actual start/end timestamps in the timer; completed and early-ended sessions persist them so pauses and export delays cannot move distraction records outside the session window.
 3. Show each distraction's reason and session-clamped duration in chronological order. The pencil edits saved title/reflection. Session deletion also removes its distraction records without touching other sessions.
-4. Resolve app names centrally from the saved display name, legacy name, then six exact bundle-ID mappings: Instagram, TikTok, WhatsApp, YouTube, Facebook and X. No match leaves the name blank, as requested; native tokens still render icons. Both session and weekly analytics use this rule. Bundle IDs were checked against Apple's App Store lookup API.
+4. Resolve app names centrally from the saved display name, legacy name, then six exact bundle-ID mappings: Instagram, TikTok, WhatsApp, YouTube, Facebook and X. No match shows "Blocked App", as requested; native tokens still render icons. Both session and weekly analytics use this rule. Bundle IDs were checked against Apple's App Store lookup API.
 5. Reuse a full-screen onboarding background for all four active steps. Derive the Home glow center from the timer in camera-local coordinates, and explicitly type accessibility strings to fix Canvas compilation. Add Idle/Ready previews with their required environment objects and in-memory model container.
 
 ## Time complexity
@@ -41,13 +42,14 @@ The share check requires an already booted iOS 27 simulator; replace that UUID w
 - [x] Existing camera geometry/segment-export checks, break checks and share-card overflow checks.
 - [x] Temporary routing self-check: live/history close and recovery save/discard select My Sessions.
 - [x] Temporary real SwiftData analytics harness: session isolation, repeated apps, chronological reasons, clamped durations, empty sessions, valid/invalid editing and deletion isolation.
-- [x] Name-resolution self-checks: saved/legacy/localized names, all six exact mappings, missing/unmapped IDs.
+- [x] Name-resolution self-checks: saved/legacy/localized names, all six exact mappings, missing/unmapped IDs; both analytics screens show "Blocked App" when no name resolves.
+- [x] Production timer/session-creation self-check: old timestamps reproduce 0s for a 140-second break; actual timestamps preserve all 140 seconds. Resume preserves the start, repeated end preserves the stop time, and configuration resets both. Automatic completion persists actual timestamps even after a recap delay.
 - [x] Glow center matches timer at four phone/tablet sizes; Home Canvas rendered Idle and Ready.
 - [x] Earlier Dev builds installed and launched on iPhone (3); user accepted the Home appearance.
 - [ ] Final deterministic-name display over real Screen Time tokens on iPhone (3).
 
 ## Compatibility and limits
 
-No stored schema change, new dependency or production app identity change. Computed name resolution also applies to existing records, but a record without a name or recognized bundle ID intentionally stays blank. Reasons remain the user's original text; work/entertainment classification is not implemented. Device verification of native token icons remains necessary.
+No stored schema change, new dependency or production app identity change. Computed name resolution also applies to existing records, but a record without a name or recognized bundle ID shows "Blocked App". Duration is the logged break window, not measured foreground app usage. Existing sessions with reconstructed timestamps are not guessed or rewritten and may still show 0s; verify the timing fix with a new session. Reasons remain the user's original text; work/entertainment classification is not implemented. Device verification of native token icons remains necessary.
 
 Related: #53, #56, #60. The existing Dev/TestFlight setup remains documented in `docs/development-builds.md`.

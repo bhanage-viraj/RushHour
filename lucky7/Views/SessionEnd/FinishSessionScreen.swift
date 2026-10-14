@@ -232,12 +232,12 @@ struct FinishSessionScreen: View {
         guard sessionId == nil else { return }
         let id = sessionTimer.sessionId   // SAME id the distractions were saved under, so analytics matches
         let duration = TimeInterval(sessionTimer.configuredTotalSeconds)
-        let endTime = Date()
+        let endTime = sessionTimer.endedAt ?? Date()
         let session = Session(
             id: id,
             userId: UUID(),
             duration: duration,
-            startTime: endTime.addingTimeInterval(-duration),
+            startTime: sessionTimer.startedAt ?? endTime.addingTimeInterval(-duration),
             endTime: endTime,
             wrappedVideoPath: sessionRecording.finalVideoURL?.lastPathComponent,
             rawClipPath: sessionRecording.rawClipURL?.lastPathComponent

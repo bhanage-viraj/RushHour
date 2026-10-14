@@ -14,6 +14,8 @@ final class SessionTimerViewModel: ObservableObject {
     // Distractions are saved under it AND the Session row is created with it, so the analytics
     // screens — which match distractions by Session.id — actually find them.
     private(set) var sessionId = UUID()
+    private(set) var startedAt: Date?
+    private(set) var endedAt: Date?
 
     private var timer: Timer?
     private var totalSeconds: Int = 2 * 3600 + 30 * 60
@@ -28,6 +30,8 @@ final class SessionTimerViewModel: ObservableObject {
         pause()
         showFinishSession = false
         sessionId = UUID()   // fresh id for this session
+        startedAt = nil
+        endedAt = nil
 
         let clampedHours = min(max(hours, 0), 23)
         let clampedMinutes = min(max(minutes, 0), 59)
@@ -49,6 +53,7 @@ final class SessionTimerViewModel: ObservableObject {
     func start() {
         guard totalSeconds > 0, timer == nil else { return }
 
+        if startedAt == nil { startedAt = Date() }
         showFinishSession = false
         isRunning = true
         let newTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
@@ -63,6 +68,11 @@ final class SessionTimerViewModel: ObservableObject {
         timer?.invalidate()
         timer = nil
         isRunning = false
+    }
+
+    func end() {
+        pause()
+        if startedAt != nil && endedAt == nil { endedAt = Date() }
     }
 
     func toggle() {
@@ -95,9 +105,7 @@ final class SessionTimerViewModel: ObservableObject {
     }
 
     private func finish() {
-        timer?.invalidate()
-        timer = nil
-        isRunning = false
+        end()
         updateDisplay()
         showFinishSession = true
     }
