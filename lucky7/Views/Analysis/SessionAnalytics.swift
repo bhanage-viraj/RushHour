@@ -77,7 +77,7 @@ struct SessionAnalytics: View {
             whole,
             max(0, Int(distractionStat.totalDistractionDuration.rounded()))
         )
-        let focus = max(whole - distracted, 0)
+        let focus = max(0, Int((session?.focusDuration(distractedDuration: distractionStat.totalDistractionDuration) ?? 0).rounded()))
         return (whole, focus, distracted)
     }
 
@@ -111,7 +111,7 @@ struct SessionAnalytics: View {
     private var shareMetadata: WrapShareMetadata {
         WrapShareMetadata(
             title: displayTitle,
-            duration: wholeSessionText,
+            duration: formatDuration(session?.focusDuration() ?? 0),
             date: dateText.capitalized
         )
     }

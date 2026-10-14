@@ -18,6 +18,7 @@ struct SessionDetails: View {
 
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @EnvironmentObject private var sessionRecording: SessionRecordingViewModel
     @Query private var sessions: [Session]
 
@@ -114,11 +115,14 @@ struct SessionDetails: View {
         }
         .animation(.easeInOut(duration: 0.2), value: showDiscardConfirm)
         .sheet(isPresented: $showDiscardConfirm) {
-            discardConfirmation
-                .presentationDetents([.height(250)])
-                .presentationDragIndicator(.visible)
-                .presentationCornerRadius(24)
-                .presentationBackground(.white)
+            ScrollView(showsIndicators: false) {
+                discardConfirmation
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .presentationDetents(dynamicTypeSize.isAccessibilitySize ? [.large] : [.height(250)])
+            .presentationDragIndicator(.visible)
+            .presentationCornerRadius(24)
+            .presentationBackground(.white)
         }
         .interactiveDismissDisabled()
     }
@@ -596,7 +600,7 @@ struct SessionDetails: View {
         guard wrappedURL == nil else { return rawURL }
 
         let rawSeconds = Double(SessionRecordingViewModel.estimatedFrameCount(from: rawURL)) / AppConstants.wrappedOutputFPS
-        if session.actualDuration >= 15 * 60, rawSeconds <= staleRollupSliceMaxSeconds {
+        if session.focusDuration() >= 15 * 60, rawSeconds <= staleRollupSliceMaxSeconds {
             RecordingDiagnostics.log("SessionDetails restore skipped short raw source session=\(sessionId) raw=\(rawURL.lastPathComponent) seconds=\(String(format: "%.2f", rawSeconds))")
             return nil
         }

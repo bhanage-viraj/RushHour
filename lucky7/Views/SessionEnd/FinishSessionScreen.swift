@@ -240,7 +240,8 @@ struct FinishSessionScreen: View {
             startTime: sessionTimer.startedAt ?? endTime.addingTimeInterval(-duration),
             endTime: endTime,
             wrappedVideoPath: sessionRecording.finalVideoURL?.lastPathComponent,
-            rawClipPath: sessionRecording.rawClipURL?.lastPathComponent
+            rawClipPath: sessionRecording.rawClipURL?.lastPathComponent,
+            activeFocusDuration: TimeInterval(sessionTimer.elapsedSeconds)
         )
         context.insert(session)
         sessionId = id

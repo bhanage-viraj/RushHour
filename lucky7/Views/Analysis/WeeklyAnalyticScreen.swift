@@ -120,7 +120,17 @@ struct WeeklyAnalyticScreen: View {
     }
 
     private var totalFocus: TimeInterval {
-        max(weekTotalDuration - totalDistracted, 0)
+        focusDuration(for: sessions)
+    }
+
+    private func focusDuration(for selectedSessions: [Session]) -> TimeInterval {
+        let bySession = Dictionary(grouping: weekDistractions, by: \.sessionId)
+        return selectedSessions.reduce(0) { total, session in
+            let distracted = bySession[session.id, default: []].reduce(0) {
+                $0 + $1.duration(overlapping: session)
+            }
+            return total + session.focusDuration(distractedDuration: distracted)
+        }
     }
 
     private var avgSessionLength: TimeInterval {
@@ -173,10 +183,10 @@ struct WeeklyAnalyticScreen: View {
             let distracted = weekDistractions
                 .filter { dayIDs.contains($0.sessionId) }
                 .reduce(0) { $0 + distractedDuration($1) }
-            let total = daySessions.reduce(0) { $0 + $1.actualDuration }
+            let focus = focusDuration(for: daySessions)
             return DayStat(
                 date: day,
-                focusMinutes: max(total - distracted, 0) / 60,
+                focusMinutes: focus / 60,
                 distractedMinutes: distracted / 60,
                 hasSessions: !daySessions.isEmpty
             )
