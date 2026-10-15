@@ -249,6 +249,7 @@ struct WrapShareComposer: View {
                 .frame(maxWidth: .infinity)
             }
             .contentMargins(.vertical, margin, for: .scrollContent)
+            .scrollEdgeEffectHidden(true, for: .top)
             .scrollTargetBehavior(.viewAligned(limitBehavior: .always, anchor: .center))
             .scrollPosition(id: $scrollTarget, anchor: .center)
             .scrollIndicators(.hidden)

@@ -4,7 +4,7 @@
 Landscape recordings already preserved their aspect ratio, but the share composer still used the portrait layout and metadata scale. The newer local implementation needs to ship separately from the earlier orientation fix.
 
 ## Changes
-1. Select a vertical template carousel and compact share panel when the extracted poster is wider than it is tall. Reuse the existing card, selection binding, accessible template adjustment, and share-button components. Add the landscape design assets and native navigation header.
+1. Select a vertical template carousel and compact share panel when the extracted poster is wider than it is tall. Reuse the existing card, selection binding, accessible template adjustment, and share-button components. Add the landscape design assets and native navigation header. Hide only the vertical carousel’s top scroll-edge effect: iOS otherwise blurs the upper card behind the header when Transparent is selected, whereas Figma node 47:1609 keeps it sharp at 50% opacity.
 2. Use `WrapOverlayLayout` to share landscape unit/top-spacing calculations between SwiftUI preview and `ExportEngine`. Portrait values are retained. Review preview/export alignment together.
 3. Add Save to Photo using `PhotoLibrarySaver` for the prepared video or transparent PNG, retaining permission denial and save-error reporting. Existing destination flows and output caching are reused.
 
@@ -23,8 +23,10 @@ The share check requires an already booted iOS 27 simulator. Signing requires te
 - [x] Existing share-card geometry/render checks: 18 passed, zero overflow failures.
 - [x] Existing camera orientation and segment stitching checks: 6 passed.
 - [x] Install and launch Rush Hour Dev on iPhone (3).
-- [ ] Physical-device template scrolling and centering.
-- [ ] Photos allow/deny and saved video/PNG appearance.
+- [x] User confirmed horizontal centering, template selection, and successful Photos saving on iPhone (3) before the header correction.
+- [x] Temporary iOS 27 production-composer render comparison: upper poster stripes remain sharp; pixels below the header are unchanged after disabling the top scroll-edge effect.
+- [ ] User confirmation of the corrected header on the phone.
+- [ ] Photos denial and individual video/PNG export variants; successful save confirmed by user.
 - [ ] Actual Instagram, WhatsApp, and Messages handoff.
 
 ## Compatibility and limits
