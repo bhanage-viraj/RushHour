@@ -52,10 +52,18 @@ struct WrapShareComposer: View {
                                 dismiss()
                             } label: { Image(systemName: "chevron.left") }
                             .tint(.white)
+                            .disabled(viewModel.isWorking)
                             .accessibilityLabel("Back")
                         }
                     }
                 }
+        }
+        .overlay(alignment: .top) {
+            if let result = viewModel.resultMessage {
+                resultBanner(result)
+                    .padding(.top, 58)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
         }
         .task {
             await viewModel.prepare()
@@ -150,12 +158,6 @@ struct WrapShareComposer: View {
                     workingOverlay
                 }
 
-                if let result = viewModel.resultMessage {
-                    resultBanner(result)
-                        .frame(maxHeight: .infinity, alignment: .top)
-                        .padding(.top, 58)
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                }
             }
         }
     }
