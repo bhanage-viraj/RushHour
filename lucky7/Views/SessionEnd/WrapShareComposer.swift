@@ -271,27 +271,8 @@ struct WrapShareComposer: View {
                 .frame(height: 13, alignment: .top)
                 .padding(.horizontal, 20)
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: 16) {
-                    if viewModel.canCopySelected {
-                        ShareUtilityButton(title: "Copy", systemImage: "document.on.document", action: viewModel.copySelected)
-                            .frame(width: 74)
-                    }
-                    ShareUtilityButton(title: "Save to\nPhoto", systemImage: "square.and.arrow.down", action: viewModel.saveSelectedToPhotos)
-                        .frame(width: 74)
-                    ShareDestinationButton(title: "Instagram\nStory", assetName: "LandscapeInstagramShareIcon", action: viewModel.shareSelectedToInstagramStory)
-                        .frame(width: 74)
-                    ShareDestinationButton(title: "Instagram\nMessages", assetName: "LandscapeInstagramShareIcon", action: viewModel.shareSelected)
-                        .frame(width: 74)
-                        .accessibilityHint("Opens the share sheet to choose Instagram")
-                    ShareDestinationButton(title: "Whatsapp", assetName: "LandscapeWhatsAppShareIcon", action: viewModel.shareSelected)
-                        .frame(width: 74)
-                        .accessibilityHint("Opens the share sheet to choose WhatsApp")
-                    ShareDestinationButton(title: "Messages", assetName: "LandscapeMessagesShareIcon", action: viewModel.shareSelectedToMessages)
-                        .frame(width: 74)
-                }
+            shareActions
                 .padding(.horizontal, 20)
-            }
         }
         .padding(.top, 24)
         .padding(.bottom, 32)
@@ -311,37 +292,7 @@ struct WrapShareComposer: View {
                 .foregroundStyle(.black)
                 .frame(height: 13, alignment: .top)
 
-            HStack(spacing: 0) {
-                ShareDestinationButton(
-                    title: "Instagram\nStory",
-                    assetName: "InstagramShareIcon",
-                    action: viewModel.shareSelectedToInstagramStory
-                )
-                .frame(maxWidth: .infinity)
-
-                ShareDestinationButton(
-                    title: "Messages",
-                    assetName: "MessagesShareIcon",
-                    action: viewModel.shareSelectedToMessages
-                )
-                .frame(maxWidth: .infinity)
-
-                ShareUtilityButton(
-                    title: "Share",
-                    systemImage: "square.and.arrow.up",
-                    action: viewModel.shareSelected
-                )
-                .frame(maxWidth: .infinity)
-
-                if viewModel.canCopySelected {
-                    ShareUtilityButton(
-                        title: "Copy",
-                        systemImage: "document.on.document",
-                        action: viewModel.copySelected
-                    )
-                    .frame(maxWidth: .infinity)
-                }
-            }
+            shareActions
         }
         .padding(.horizontal, 20)
         .padding(.top, 24)
@@ -366,6 +317,24 @@ struct WrapShareComposer: View {
                 style: .continuous
             )
             .stroke(Color.black, lineWidth: 2)
+        }
+    }
+
+    private var shareActions: some View {
+        HStack(spacing: 0) {
+            ShareUtilityButton(
+                title: "Save",
+                systemImage: "square.and.arrow.down",
+                action: viewModel.saveSelectedToPhotos
+            )
+            .frame(maxWidth: .infinity)
+
+            ShareUtilityButton(
+                title: "Share",
+                systemImage: "square.and.arrow.up",
+                action: viewModel.shareSelected
+            )
+            .frame(maxWidth: .infinity)
         }
     }
 
@@ -457,37 +426,6 @@ struct WrapShareComposer: View {
         withAnimation(.easeInOut(duration: 0.22)) {
             scrollTarget = templates[nextIndex]
         }
-    }
-}
-
-private struct ShareDestinationButton: View {
-    let title: String
-    let assetName: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 8) {
-                Image(assetName)
-                    .renderingMode(.original)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 48, height: 48)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-                Text(title)
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(Color.black.opacity(0.8))
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(height: 32, alignment: .top)
-            }
-            .frame(width: 68)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(ShareActionButtonStyle())
-        .accessibilityLabel(title.replacingOccurrences(of: "\n", with: " "))
     }
 }
 
