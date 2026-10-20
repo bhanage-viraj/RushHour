@@ -64,5 +64,23 @@ enum WrapOverlayLayout {
     static let transparentBadgeFontRatio: CGFloat = 0.032
     static let transparentBadgeGapRatio: CGFloat = 0.064
 
+    static func unit(for template: WrapTemplate, in size: CGSize) -> CGFloat {
+        let unit = min(size.width, size.height)
+        guard size.width > size.height else { return unit }
+        switch template {
+        case .styled: return unit * 47.27 / (197.48 * logoWidthRatio)
+        case .transparent: return unit * 49.995 / (197.48 * logoWidthRatio)
+        case .clean: return unit
+        }
+    }
+
+    static func styledTopRatio(in size: CGSize) -> CGFloat {
+        size.width > size.height ? 18.99 / 197.48 : styledTopRatio
+    }
+
+    static func transparentBadgeTopRatio(in size: CGSize) -> CGFloat {
+        size.width > size.height ? 18.53 / 197.48 : transparentBadgeTopRatio
+    }
+
     static let lineHeightRatio: CGFloat = 1.30
 }

@@ -736,7 +736,7 @@ final class ExportEngine {
         layer.frame = CGRect(origin: .zero, size: renderSize)
         layer.masksToBounds = true
 
-        let unit = min(renderSize.width, renderSize.height)
+        let unit = WrapOverlayLayout.unit(for: template, in: renderSize)
 
         func gothic(_ size: CGFloat) -> UIFont {
             UIFont(name: "SpecialGothicExpandedOne-Regular", size: size)
@@ -945,13 +945,13 @@ final class ExportEngine {
             break
 
         case .styled:
-            addMetadata(startY: renderSize.height * WrapOverlayLayout.styledTopRatio)
+            addMetadata(startY: renderSize.height * WrapOverlayLayout.styledTopRatio(in: renderSize))
 
         case .transparent:
             // The badge identifies this option in the template picker. It is not part of
             // the sticker users copy, save, or share.
             addMetadata(
-                startY: renderSize.height * WrapOverlayLayout.transparentBadgeTopRatio
+                startY: renderSize.height * WrapOverlayLayout.transparentBadgeTopRatio(in: renderSize)
                     + unit * (
                         WrapOverlayLayout.transparentBadgeHeightRatio
                             + WrapOverlayLayout.transparentBadgeGapRatio
