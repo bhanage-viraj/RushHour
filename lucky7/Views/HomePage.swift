@@ -37,11 +37,6 @@ struct HomePage: View {
     /// true once the session is pushed into full-focus mode — morphs the one shared camera
     /// from the session card down into the focus circle. Shared with the embedded RecordingPage.
     @State private var isFocusExpanded = false
-    // Safe-area insets, read once, so the camera card lines up under the header / above
-    // the tab bar while the camera itself ignores the safe area (to animate to full screen).
-    @State private var safeTop: CGFloat = 47
-    @State private var safeBottom: CGFloat = 34
-
     private let transition = Animation.spring(response: 0.5, dampingFraction: 0.86)
     private let focusTransition = Animation.spring(response: 0.42, dampingFraction: 0.92, blendDuration: 0.08)
 
@@ -62,7 +57,7 @@ struct HomePage: View {
 
             // 1b. Session background (matches FullFocusScreen) — fades in around the frame.
             if sessionActive {
-                RecordingBackground()
+                RecordingBackground(isExpanded: isFocusExpanded, isPaused: !sessionTimer.isRunning)
                     .transition(.opacity)
             }
 
@@ -70,37 +65,33 @@ struct HomePage: View {
             //    never fights another layer for the feed. Its frame animates across three
             //    states: home card → full session card → focus circle.
             GeometryReader { geo in
-                let circleSize: CGFloat = 164
                 let isCircle = sessionActive && isFocusExpanded
                 let homeScale = HomeDesign.scale(in: geo.size)
                 let homeOrigin = HomeDesign.origin(in: geo.size, scale: homeScale)
+                let recordingLayout = RecordingLayout(size: geo.size, isExpanded: isFocusExpanded,
+                                                      isPaused: !sessionTimer.isRunning)
+                let recordingCamera = recordingLayout.camera
 
-                // Card insets (home vs in-session), measured from the screen edges. Active
-                // frame: top sits 6pt below the countdown housing; bottom 6pt below pause.
-                let activeTopInset = safeTop + 60
-                let activeBottomInset = safeBottom + 28
-                let activeHInset: CGFloat = 12
-
-                let activeCardW = max(geo.size.width - activeHInset * 2, 0)
-                let activeCardH = max(geo.size.height - activeTopInset - activeBottomInset, 0)
                 let homeCardW = HomeDesign.camera.width * homeScale
                 let homeCardH = HomeDesign.camera.height * homeScale
 
-                let cardW = sessionActive ? activeCardW : homeCardW
-                let cardH = sessionActive ? activeCardH : homeCardH
                 let homeCenter = HomeDesign.center(of: HomeDesign.camera, origin: homeOrigin, scale: homeScale)
-
-                let camW = isCircle ? circleSize : cardW
-                let camH = isCircle ? circleSize : cardH
-                let centerX = isCircle || sessionActive ? geo.size.width / 2 : homeCenter.x
-                let centerY = isCircle ? safeTop + 168 : (sessionActive ? activeTopInset + activeCardH / 2 : homeCenter.y)
-                let corner: CGFloat = isCircle ? circleSize / 2 : 30
+                let camW = sessionActive ? recordingCamera.width : homeCardW
+                let camH = sessionActive ? recordingCamera.height : homeCardH
+                let centerX = sessionActive ? recordingCamera.midX : homeCenter.x
+                let centerY = sessionActive ? recordingCamera.midY : homeCenter.y
+                let corner = isCircle ? camW / 2 : 30 * (sessionActive ? recordingLayout.scale : homeScale)
 
                 ZStack(alignment: .top) {
                     Color.black
 
                     CameraPreview(session: sessionRecording.captureSession)
                         .frame(width: camW, height: camH)
+
+                    if sessionActive && !isCircle {
+                        RecordingCameraShading(isPaused: !sessionTimer.isRunning)
+                            .frame(width: camW, height: camH)
+                    }
 
                     if isReadyToRecord && !sessionActive && !isCircle {
                         GeometryReader { _ in
@@ -126,10 +117,11 @@ struct HomePage: View {
                 }
                 .frame(width: camW, height: camH)
                     .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
+                    .shadow(color: isCircle ? .black : .clear, radius: 0, y: 4 * recordingLayout.scale)
                     .overlay {
                         if !isCircle {
                             RoundedRectangle(cornerRadius: corner, style: .continuous)
-                                .strokeBorder(Color.black, lineWidth: sessionActive ? 3 : 2)
+                                .strokeBorder(Color.black, lineWidth: sessionActive ? 2 * recordingLayout.scale : 2)
                         }
                     }
                     .position(x: centerX, y: centerY)
@@ -171,7 +163,6 @@ struct HomePage: View {
                 .transition(.opacity)
             }
         }
-        .background(safeAreaReader)
         .onAppear {
             if isActiveTab { sessionRecording.noteHomePreviewInteraction() }
         }
@@ -202,17 +193,6 @@ struct HomePage: View {
         .fullScreenCover(isPresented: $showSettings) {
             SettingsScreen()
         }
-    }
-
-    private var safeAreaReader: some View {
-        GeometryReader { proxy in
-            Color.clear
-                .onAppear {
-                    safeTop = proxy.safeAreaInsets.top
-                    safeBottom = proxy.safeAreaInsets.bottom
-                }
-        }
-        .ignoresSafeArea()
     }
 
     private func startSession() {
@@ -311,23 +291,46 @@ struct BackgroundPatternView: View {
 // MARK: - Session background (matches FullFocusScreen)
 
 struct RecordingBackground: View {
+    var isExpanded = false
+    var isPaused = false
+
     var body: some View {
-        ZStack {
-            Color("CanvasDarkGrey")
-                .ignoresSafeArea()
+        GeometryReader { geometry in
+            let layout = RecordingLayout(size: geometry.size, isExpanded: isExpanded, isPaused: isPaused)
+            ZStack {
+                Color("CanvasDarkGrey")
+                if isExpanded {
+                    Image(isPaused ? "RecordingFocusPausedPattern" : "RecordingFocusPattern")
+                        .resizable()
+                        .frame(width: 747 * layout.scale, height: 747 * layout.scale)
+                        .position(layout.point(201, 443.5))
 
-            Image("PatternBackground")
-                .resizable()
-                .scaledToFill()
-                .ignoresSafeArea()
-                .offset(x: -20, y: 2)
+                    if isPaused {
+                        Image("RecordingFocusPausedHalo")
+                            .resizable()
+                            .frame(width: 591.413 * layout.scale, height: 591.413 * layout.scale)
+                            .position(layout.point(197.13, 437.73))
+                        Image("RecordingFocusPausedGlow")
+                            .resizable()
+                            .frame(width: 633.618 * layout.scale, height: 408.619 * layout.scale)
+                            .position(layout.point(202.82, 461))
+                    }
 
-            VStack {
-                Spacer()
-                Image("bottomBlur")
+                    Color.black.opacity(0.8)
+                        .frame(width: 628 * layout.scale, height: 360.406 * layout.scale)
+                        .blur(radius: 100 * layout.scale)
+                        .position(layout.point(isPaused ? 150 : 201, isPaused ? 736.203 : 709.793))
+                } else {
+                    Image("RecordingPattern")
+                        .resizable()
+                        .frame(width: 963.912 * layout.scale, height: 963.912 * layout.scale)
+                        .position(layout.point(203, 439.976))
+                }
             }
-            .ignoresSafeArea()
+            .frame(width: geometry.size.width, height: geometry.size.height)
+            .clipped()
         }
+        .ignoresSafeArea()
         .allowsHitTesting(false)
         .accessibilityDecorative()
     }

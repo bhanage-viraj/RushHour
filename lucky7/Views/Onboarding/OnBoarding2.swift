@@ -15,8 +15,8 @@ struct OnBoarding2: View {
             step: 2,
             onContinue: { path.append(3) },
             onBack: goBack
-        ) {
-            mainContent
+        ) { scale in
+            mainContent(scale: scale)
         }
         .navigationBarBackButtonHidden()
     }
@@ -26,60 +26,63 @@ struct OnBoarding2: View {
         path.removeLast()
     }
 
-    private var mainContent: some View {
-        VStack(spacing: 24) {
-            VStack(spacing: 10) {
-                Text("Set a time.\nStart a Session")
-                    .font(.custom("Special Gothic Expanded One", size: 28))
-                    .foregroundColor(.black)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
+    private func mainContent(scale: CGFloat) -> some View {
+        VStack(spacing: 24 * scale) {
+            VStack(spacing: 16 * scale) {
+                OnboardingTitle(text: "Set a time.\nStart a Session", scale: scale)
 
                 Text("Turn intentions into action.\nStay focused, review your recordings,\nand celebrate every step forward.")
-                    .font(.system(size: 17, weight: .regular))
-                    .foregroundColor(.black.opacity(0.8))
-                    .multilineTextAlignment(.center)
-                    .lineSpacing(2)
+                    .font(.system(size: 17 * scale))
+                    .foregroundStyle(Color(white: 38 / 255).opacity(0.8))
+                    .lineSpacing(2 * scale)
+                    .frame(height: 66 * scale)
             }
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
 
-            photo
-                .padding(.bottom, 44)
+            photo(scale: scale)
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
-    private var photo: some View {
-        LoopingVideoPlayer(assetName: "OnboardingVideoSample")
-            .frame(width: 220, height: 340)
-            .clipShape(RoundedRectangle(cornerRadius: 20))
-            .shadow(color: Color.black.opacity(1), radius: 0, x: 0, y: 3)
-            .overlay(
-                RoundedRectangle(cornerRadius: 20)
-                    .strokeBorder(Color.black, lineWidth: 1)
-            )
-            .overlay(alignment: .top) {
-                VStack(spacing: 2) {
-                    Text("Morning Session Rush!")
-                        .font(.system(size: 12, weight: .bold))
-                    Text("3h 20m")
-                        .font(.system(size: 34, weight: .heavy))
-                    Text("26 MAY 2026")
-                        .font(.system(size: 9, weight: .semibold))
-                        .tracking(2)
+    private func photo(scale: CGFloat) -> some View {
+        ZStack(alignment: .topLeading) {
+            LoopingVideoPlayer(assetName: "OnboardingVideoSample")
+                .frame(width: 226.033 * scale, height: 333.81 * scale)
+                .clipShape(RoundedRectangle(cornerRadius: 25.806 * scale))
+                .shadow(color: .black, radius: 0, x: 0, y: 2.994 * scale)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 25.806 * scale)
+                        .strokeBorder(.black, lineWidth: 0.748 * scale)
                 }
-                .foregroundColor(.white)
-                .padding(.top, 20)
-            }
-            .offset(x: -14, y: 8)
-            .overlay(alignment: .bottomTrailing) {
-                Image("OnboardingTrafficLight")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(height: 96)
-                    .offset(x: 30, y: 70)
-                    .padding(12)
-            }
+                .overlay(alignment: .top) {
+                    VStack(spacing: 0) {
+                        Text("Morning Session Rush!")
+                            .font(.custom("Special Gothic Expanded One", size: 7.37 * scale))
+                            .frame(height: 9.58 * scale)
+                        Text("3h 20m")
+                            .font(.custom("Special Gothic Expanded One", size: 26.32 * scale))
+                            .frame(height: 34.22 * scale)
+                            .padding(.top, 2 * scale)
+                        Text("26 MAY 2026")
+                            .font(.system(size: 6.317 * scale, weight: .bold))
+                            .tracking(0.6317 * scale)
+                            .opacity(0.7)
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.top, 20.96 * scale)
+                }
+                .position(x: 142.2865 * scale, y: 185.905 * scale)
+
+            Image("OnboardingTrafficLight")
+                .resizable()
+                .frame(width: 193.543 * scale, height: 81.223 * scale)
+                .position(x: 189.57 * scale, y: 352.611 * scale)
+        }
+        .frame(width: 306 * scale, height: 405 * scale)
+        .accessibilityHidden(true)
     }
+
 }
 
 private struct LoopingVideoPlayer: UIViewRepresentable {

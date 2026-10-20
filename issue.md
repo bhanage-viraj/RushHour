@@ -1,37 +1,53 @@
-# Landscape wrap sharing
+# Align recording and onboarding layouts with Figma
 
 ## Background and previous behavior
-Landscape recordings already preserved their aspect ratio, but the share composer still used the portrait layout and metadata scale. The newer local implementation needs to ship separately from the earlier orientation fix.
+The compact/expanded recording screens used different camera and control geometry, and the paused glow could extend outside the camera frame. Onboarding used four progress segments, content-driven card heights, older illustration sizes, and a different background/button treatment from the supplied frames.
 
 ## Changes
-1. Select a vertical template carousel and compact share panel when the extracted poster is wider than it is tall. Reuse the existing card, selection binding, accessible template adjustment, and share-button components. Add the landscape design assets and native navigation header. Hide only the vertical carousel’s top scroll-edge effect: iOS otherwise blurs the upper card behind the header when Transparent is selected, whereas Figma node 47:1609 keeps it sharp at 50% opacity.
-2. Use `WrapOverlayLayout` to share landscape unit/top-spacing calculations between SwiftUI preview and `ExportEngine`. Portrait values are retained. Review preview/export alignment together.
-3. Add Save using `PhotoLibrarySaver` for the prepared video or transparent PNG, retaining permission denial and save-error reporting. Both orientations reuse one Save/Share action row and existing output caching. The Save action writes to Photos; Share presents the native video/image share sheet. The native Back button is disabled while exporting/saving, preventing its cleanup from deleting a video that Photos is still consuming. Success banners are attached to the NavigationStack’s safe-area layout, below the navigation title in both landscape and portrait sharing.
+1. Introduce `RecordingLayout` as the shared geometry for the existing HomePage camera, standalone recording camera, and recording controls. Compact and expanded states use the supplied Figma positions, including the paused badge and controls. Keep one live camera preview in the embedded flow and retain the existing pause, end, break, export, and persistence callbacks.
+2. Replace the duplicated recording chrome with `RecordingControls` and the matching timer shell. Clip the paused glow and top shade inside the camera frame; bundle the Figma patterns and blur assets as Retina PNGs because the asset catalog did not preserve the SVG blur filters.
+3. Match the onboarding card margins, title line spacing, illustration placement, three progress segments, and Continue button to Figma. Reuse the existing sample video and native Screen Time picker. Request notifications through the existing guarded system-permission helper on the first screen. Screen Time authorization remains on step 3 Continue, followed by the unchanged three-selection gate.
+4. Keep Back on steps 2 and 3. Select 3 Apps has no Back button, as requested. Preserve the full-screen dotted background and the lock badge's source pattern.
+
+## Design references
+- Compact recording: Figma `76:740`, `76:692`; expanded/paused recording: `76:824`, `76:868`.
+- App selection: Figma `76:618`, `76:642`.
+- Onboarding/notification prompt: Figma `78:1072`, `78:1075`, `78:1131`, `78:1203`.
+- File: https://www.figma.com/design/WWMtHXoNzhu8kjOgyHc1RJ/Challenge-3
+- Related issues: #57, #63, #65. These references do not close the issues automatically.
 
 ## Time complexity
-Static smell scan: at most three template cards; constant-time layout calculations. One existing Photos operation per save. No new per-record external I/O, unbounded collection, or pagination was added.
+Static smell scan: layout calculations are constant-time. Progress bars iterate over three items; the recording timer has three panels and two separators. The lock's pattern renders a fixed 71-by-69 grid (4,899 local image draws), independent of the selected apps and recording duration. No per-item external I/O, pagination, new dependency, or unbounded collection is introduced. This is not a measured performance optimization.
 
 ## Verify
 ```sh
 xcodebuild -project lucky7.xcodeproj -scheme RushHourDev -configuration Dev -destination 'generic/platform=iOS' -allowProvisioningUpdates build
 python3 scripts/check-camera-orientation.py
-python3 scripts/check-share-cards.py E8EE0633-8278-48A4-8F24-7321EAABBE1E /private/tmp/rushhour-landscape-cards
 ```
-The share check requires an already booted iOS 27 simulator. Signing requires team access.
+Signing requires access to the development team. For a simulator build, use destination `generic/platform=iOS Simulator` with `CODE_SIGNING_ALLOWED=NO`.
 
-- [x] Signed Dev build with iOS 27 SDK.
-- [x] Existing share-card geometry/render checks: 18 passed, zero overflow failures.
-- [x] Existing camera orientation and segment stitching checks: 6 passed.
-- [x] Install and launch Rush Hour Dev on iPhone (3).
-- [x] User confirmed horizontal centering, template selection, and successful Photos saving on iPhone (3) before the header correction.
-- [x] Temporary iOS 27 production-composer render comparison: upper poster stripes remain sharp; pixels below the header are unchanged after disabling the top scroll-edge effect.
-- [x] User confirmed the corrected upper-card/header appearance on the phone.
-- [x] Review fix 1: temporary production-composer harness checks the native toolbar item is disabled while busy and enabled after completion.
-- [x] Review fix 2: rendered Saved to Photos and Copied to Clipboard banners below the title; portrait copy banner also passes the position check.
-- [x] Save/Share action row rendered in both orientations with the download/share SF Symbols; busy Back and success-banner checks still pass.
-- [ ] User confirmation of both review fixes and native Share in the latest phone build.
-- [ ] Photos denial and individual video/PNG export variants; successful save confirmed by user.
-- [ ] Actual native share-sheet handoff to installed apps.
+1. On a fresh onboarding flow, check steps 1–3 against the Figma references. Verify that Back returns from 3 to 2 and from 2 to 1, and that app selection has no Back.
+2. Confirm Continue stays disabled below three selections and finishes onboarding with at least three selections. Relaunch normally to verify completion persists.
+3. Start a recording; pause/resume and switch between compact and expanded modes. The timer/camera should remain aligned, the camera should stay live, and the paused glow should stay inside its frame.
+4. Check large accessibility text and VoiceOver as described in the review findings below.
 
-## Compatibility and limits
-No data migration, new dependency, or app identity change. Both portrait and landscape panels contain only Save and Share. Save writes the selected video or transparent PNG to Photos; Share opens the native iOS share sheet. App-specific shortcuts and Copy are omitted from these panels as requested. Other local shield/signing experiments are outside this change.
+## Validation completed
+- [x] Signed RushHourDev/Dev build with Xcode 27.1; simulator build passed.
+- [x] Installed and launched the final Dev build on iPhone (3), iOS 27.0.1.
+- [x] User confirmed Continue works with at least three selections after the final normal launch.
+- [x] Six existing camera orientation and real segment-stitching checks passed.
+- [x] Isolated recording render/geometry checks covered four states at 402x874, 375x812, and 320x568; paused shading did not change pixels outside the compact camera frame.
+- [x] Native-navigation onboarding captures verified the default-size card and button geometry, complete title lines, and lock badge pattern/icon dimensions against Figma. Permission services and picker data were isolated in the visual fixture; the real picker/Continue was checked on the phone.
+- [x] Twelve break scenarios passed with a temporary fixture adding the missing `showResumeReminder` state. The unmodified repository check fails to compile on both develop and this branch because its fixture lacks that state; no repository test files were changed.
+- [x] `git diff --check` passed.
+- [ ] Full real-device recording/pause/expand/end and VoiceOver interaction matrix.
+
+## Review findings — address before merge
+1. **P2: Larger text clips onboarding headings.** At `.accessibility3`, the 34-point title-line frames truncate “Twelve tabs.” and “Six deadlines.” and overlap the title lines. The previous scrollable card allowed content to grow. Allow the title/card to grow, with a scroll fallback for accessibility sizes, while retaining the default Figma geometry. Reproduced in the native simulator hierarchy at 402x874.
+2. **P2: Embedded recording loses spoken capture progress.** Removing the old recording-status pill also removes its accessible running-state and captured-frame-count value. The standalone camera still exposes `cameraPreviewValue`, but the shared HomePage camera does not; the replacement controls expose only time and a paused label. Restore the existing state/frame-count description on the embedded camera or another accessible recording element. Confirmed by tracing both camera call sites and the removed accessibility value; live VoiceOver taps remain unchecked.
+
+## Review passes
+Complexity: no repository complexity gate found; Lizard 1.24.0 reports complexity 10 for the new controls function, with existing recording-method maximum unchanged at 6. SwiftUI computed-property bodies also received a manual control-flow check. Design/correctness: the two accessibility findings above. Designed-module/registry contract pass: not applicable; this diff changes SwiftUI layout/components, not a provider or module registry. Ponytail: the shared geometry and controls replace duplicated code; no additional lean-only finding. RAMA skipped at the user's request.
+
+## Compatibility
+No app identity, entitlement, data-model, storage migration, or new dependency change. Existing sessions and app selections remain intact. Notification-dialog text and appearance are owned by iOS. The PR remains a draft while its two accessibility findings are open.
