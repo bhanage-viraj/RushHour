@@ -32,6 +32,7 @@ struct SessionAnalytics: View {
     @State private var editedTitle = ""
     @State private var editedSummary = ""
     @State private var showEditError = false
+    @State private var showDeleteError = false
 
     init(sessionId: UUID, videoFrames: [UIImage] = [], onClose: (() -> Void)? = nil) {
         self.sessionId = sessionId
@@ -183,6 +184,11 @@ struct SessionAnalytics: View {
         }
         .navigationBarBackButtonHidden(true)
         .sheet(isPresented: $isEditingSession) { editSessionForm }
+        .alert("Could not delete session", isPresented: $showDeleteError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Your session and its video are safe. Please try again.")
+        }
         .hidesFloatingTabBar()
         .onAppear {
             if let session {
@@ -196,7 +202,10 @@ struct SessionAnalytics: View {
             await loadThumbnailIfNeeded()
         }
         .fullScreenCover(isPresented: $isShowingWrappedVideo) {
-            WrappedVideoScreen(kind: .session(sessionId), videoFrames: videoFrames)
+            // The cover starts a fresh hierarchy, so it needs its own stack for the toolbar.
+            NavigationStack {
+                WrappedVideoScreen(kind: .session(sessionId), videoFrames: videoFrames, isModal: true)
+            }
         }
         .fullScreenCover(isPresented: $isShowingShareComposer) {
             if let sourceURL = shareableVideoURL {
@@ -622,18 +631,14 @@ struct SessionAnalytics: View {
 
     private func deleteSession() {
         if let session = session {
-            // Free the video files this session left in app storage.
-            WrapStorage.delete(path: session.wrappedVideoPath)
-            WrapStorage.delete(path: session.rawClipPath)
-            // Remove the copy saved to the user's Photos library (iOS shows its own
-            // confirmation). Older sessions saved before this won't have an id.
-            if let assetId = session.photoAssetId {
-                PhotoLibrarySaver.deleteAsset(withLocalId: assetId)
+            do {
+                try SessionDeletion.delete(session, context: context)
+            } catch {
+                // Nothing was removed; stay here so the user can retry.
+                showDeleteError = true
+                return
             }
-            for distraction in distractionStat.distractions { context.delete(distraction) }
             distractionStat.distractions = []
-            context.delete(session)
-            try? context.save()
         }
         close()
     }
@@ -737,5 +742,5 @@ struct SnapshotViewer: View {
 
 #Preview {
     SessionAnalytics(sessionId: UUID(), videoFrames: [])
-        .modelContainer(for: Session.self, inMemory: true)
+        .modelContainer(for: [Session.self, Distraction.self], inMemory: true)
 }

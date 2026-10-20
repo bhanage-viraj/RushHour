@@ -691,6 +691,18 @@ private struct CheckerboardBackground: View {
     }
 }
 
+// No real video in previews, so the cards show their loading placeholder.
+#Preview("Share composer") {
+    WrapShareComposer(
+        sourceURL: URL(fileURLWithPath: "/dev/null"),
+        metadata: WrapShareMetadata(
+            title: "Morning Session Rush!",
+            duration: "3h 20m",
+            date: "26 May 2026"
+        )
+    )
+}
+
 #Preview("Portrait wrap templates") {
     ZStack {
         Color.wrappedShareBlue
