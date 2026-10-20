@@ -87,6 +87,20 @@ struct HomePage: View {
 
                     CameraPreview(session: sessionRecording.captureSession)
                         .frame(width: camW, height: camH)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("Camera preview")
+                        .accessibilityHint("Live timelapse camera feed")
+                        .accessibilityValue(
+                            AccessibilitySupport.cameraPreviewValue(
+                                isRecording: sessionRecording.isRecording,
+                                isPaused: sessionActive && !sessionTimer.isRunning,
+                                frameCount: sessionRecording.capturedFrameCount,
+                                remainingHours: sessionTimer.hours,
+                                remainingMinutes: sessionTimer.minutes,
+                                remainingSeconds: sessionTimer.seconds
+                            )
+                        )
+                        .accessibilityAddTraits(.updatesFrequently)
 
                     if sessionActive && !isCircle {
                         RecordingCameraShading(isPaused: !sessionTimer.isRunning)

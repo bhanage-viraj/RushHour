@@ -6,6 +6,7 @@
 import SwiftUI
 
 struct OnboardingScreenTemplate<Content: View>: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let step: Int
     let buttonText: String?
     var isDisabled: Bool?
@@ -39,12 +40,12 @@ struct OnboardingScreenTemplate<Content: View>: View {
                     .frame(height: 32 * scale)
                     .padding(.bottom, (step == 1 ? 10 : 13) * scale)
 
-                PatternBorderedCard(edges: [.top], cornerRadius: 24 * scale, stripHeight: 10 * scale) {
-                    content(scale)
-                        .padding(.horizontal, 23 * scale)
-                        .padding(.top, 48 * scale)
-                        .padding(.bottom, (step == 3 ? 24 : step == 2 ? 33 : 48) * scale)
-                        .frame(height: 660 * scale)
+                if dynamicTypeSize > .large {
+                    ScrollView {
+                        card(scale: scale)
+                    }
+                } else {
+                    card(scale: scale)
                 }
 
                 Button(action: onContinue) {
@@ -65,26 +66,47 @@ struct OnboardingScreenTemplate<Content: View>: View {
             }
             .padding(.horizontal, 24 * scale)
             .padding(.top, 61 * scale - geometry.safeAreaInsets.top)
+            .padding(.bottom, dynamicTypeSize > .large ? 14 * scale : 0)
         }
         .background { OnboardingBackground() }
         .preferredColorScheme(.dark)
         .toolbar(.hidden, for: .navigationBar)
         .accessibilityElement(children: .contain)
     }
+
+    private func card(scale: CGFloat) -> some View {
+        PatternBorderedCard(edges: [.top], cornerRadius: 24 * scale, stripHeight: 10 * scale) {
+            content(scale)
+                .fixedSize(horizontal: false, vertical: dynamicTypeSize > .large)
+                .padding(.horizontal, 23 * scale)
+                .padding(.top, 48 * scale)
+                .padding(.bottom, (step == 3 ? 24 : step == 2 ? 33 : 48) * scale)
+                .frame(minHeight: 660 * scale, maxHeight: dynamicTypeSize > .large ? nil : 660 * scale)
+        }
+    }
 }
 
 struct OnboardingTitle: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let text: String
     let scale: CGFloat
 
     var body: some View {
-        // The font's default line height is taller than Figma's 34-point title lines.
-        VStack(spacing: 0) {
-            ForEach(text.components(separatedBy: "\n"), id: \.self) { line in
-                Text(line)
-                    .frame(height: 34 * scale)
+        Group {
+            if dynamicTypeSize > .large {
+                Text(text)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                // The font's default line height is taller than Figma's 34-point title lines.
+                VStack(spacing: 0) {
+                    ForEach(text.components(separatedBy: "\n"), id: \.self) { line in
+                        Text(line)
+                            .frame(height: 34 * scale)
+                    }
+                }
             }
         }
+        .multilineTextAlignment(.center)
         .font(.custom("Special Gothic Expanded One", size: 28 * scale))
         .foregroundStyle(.black)
     }
