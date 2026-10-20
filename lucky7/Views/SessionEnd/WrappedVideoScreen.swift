@@ -89,7 +89,7 @@ struct WrappedVideoScreen: View {
     private var durationText: String {
         switch kind {
         case .session:
-            return formatDuration(session?.actualDuration ?? 0)
+            return formatDuration(session?.focusDuration() ?? 0)
         case .weekly(_, _, _, _, let duration), .monthly(_, _, _, _, let duration):
             return formatDuration(duration)
         }
@@ -437,7 +437,7 @@ struct WrappedVideoScreen: View {
         guard let cleanURL = await SessionWrapMigrationService.makeCleanMasterIfPossible(
             legacyMasterURL: legacyMasterURL,
             rawSourceURL: rawSourceURL,
-            sessionDuration: session.actualDuration
+            sessionDuration: session.focusDuration()
         ) else {
             RecordingDiagnostics.log(
                 "WrappedVideo legacy master retained session=\(session.id) "

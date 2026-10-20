@@ -40,12 +40,11 @@ final class SessionRecordingViewModel: ObservableObject {
     private var activeTitleExportShouldSaveToPhotos = false
     private var completedTitleExportTitle: String?
     private var completedTitleExportSavedToPhotos = false
+    private var exportGeneration = UUID()
     private var titleExportRetryTask: Task<Void, Never>?
     // Kept for final-export recovery and recap generation. Share styling never reads raw.
     private var retainedRawURL: URL?
     private var lastExportFrameCount: Int = 0
-    private static let homePreviewIdleNanoseconds: UInt64 = 45 * 1_000_000_000
-    private var homePreviewIdleTask: Task<Void, Never>?
 
     private struct PendingTitleExport {
         let title: String
@@ -107,6 +106,9 @@ final class SessionRecordingViewModel: ObservableObject {
         timelapseManager.startRunning()
     }
 
+    /// Keeps the live camera feed running on Home before a session starts.
+    /// The preview stays live while Home is visible; it is only stopped when Home
+    /// is hidden or the app leaves the foreground.
     func noteHomePreviewInteraction() {
         guard !isRecording, !isExporting else { return }
         log("homePreview interaction cameraReady=\(cameraReady)")
@@ -115,33 +117,11 @@ final class SessionRecordingViewModel: ObservableObject {
         } else {
             prepareCamera()
         }
-        scheduleHomePreviewIdleStop()
     }
 
     func stopHomePreview() {
-        cancelHomePreviewIdleStop()
         guard !isRecording, !isExporting else { return }
         log("homePreview stop")
-        timelapseManager.stopRunning()
-    }
-
-    private func scheduleHomePreviewIdleStop() {
-        homePreviewIdleTask?.cancel()
-        homePreviewIdleTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: Self.homePreviewIdleNanoseconds)
-            guard !Task.isCancelled else { return }
-            self?.stopHomePreviewAfterIdle()
-        }
-    }
-
-    private func cancelHomePreviewIdleStop() {
-        homePreviewIdleTask?.cancel()
-        homePreviewIdleTask = nil
-    }
-
-    private func stopHomePreviewAfterIdle() {
-        guard !isRecording, !isExporting else { return }
-        log("homePreview idle stop")
         timelapseManager.stopRunning()
     }
 
@@ -168,7 +148,6 @@ final class SessionRecordingViewModel: ObservableObject {
         statusMessage = "Recording…"
         self.plannedSessionSeconds = max(plannedSessionSeconds, 60)
         recordedWallClockSeconds = 0
-        cancelHomePreviewIdleStop()
 
         isStartingRecording = true
         timelapseManager.startRecording(plannedSessionSeconds: self.plannedSessionSeconds) { [weak self] started in
@@ -332,13 +311,13 @@ final class SessionRecordingViewModel: ObservableObject {
 
     func resetForNewSession() {
         log("resetForNewSession final=\(finalVideoURL?.lastPathComponent ?? "nil") raw=\(rawClipURL?.lastPathComponent ?? "nil")")
+        exportGeneration = UUID()
         ScreenWakeLock.release()
         isRecording = false
         isCapturePaused = false
         isExporting = false
         titleExportRetryTask?.cancel()
         titleExportRetryTask = nil
-        cancelHomePreviewIdleStop()
         let persistedRawURL = rawClipURL
         finalVideoURL = nil
         rawClipURL = nil
@@ -367,6 +346,14 @@ final class SessionRecordingViewModel: ObservableObject {
         completedTitleExportSavedToPhotos = false
         stopCompletions.removeAll()
         timelapseManager.resetCapturePause()
+    }
+
+    func discardCurrentSession() {
+        let source = retainedRawURL ?? rawClipURL
+        let final = finalVideoURL
+        resetForNewSession()
+        if let source { try? FileManager.default.removeItem(at: source) }
+        if let final { try? FileManager.default.removeItem(at: final) }
     }
 
     func restoreExportContext(rawURL: URL?, finalURL: URL?) {
@@ -643,12 +630,18 @@ final class SessionRecordingViewModel: ObservableObject {
         statusMessage = "Generating your Wrap…"
         ScreenWakeLock.setActive(true)
         log("finalExport start raw=\(raw.lastPathComponent) frames=\(lastExportFrameCount)")
+        let generation = exportGeneration
         exportEngine.generateWrappedVideo(
             rawVideoURL: raw,
             capturedFrameCount: lastExportFrameCount
         ) { [weak self] finalURL in
             Task { @MainActor in
                 guard let self else { return }
+                // An export finishing after discard must not revive that session.
+                guard generation == self.exportGeneration else {
+                    if let finalURL { try? FileManager.default.removeItem(at: finalURL) }
+                    return
+                }
                 let finishedTitle = self.activeTitleExportTitle ?? title
                 let callbacks = self.activeTitleExportCompletions
                 let shouldSaveToPhotos = self.activeTitleExportShouldSaveToPhotos

@@ -25,7 +25,7 @@ final class FocusViewModel: ObservableObject {
     @Published private(set) var now: Date = .now
 
     static let breakDuration: TimeInterval = 15 * 60
-    static let appGroupId = "group.com.andrianangg.Traffic-Man"
+    static let appGroupId = SharedJailbreakStore.appGroupId
     static let selectionDefaultsKey = "savedFamilyActivitySelection"
 
     private let store = ManagedSettingsStore(named: .rushHourFocus)
@@ -245,7 +245,7 @@ final class FocusViewModel: ObservableObject {
 
     func remainingSeconds(for distraction: Distraction) -> TimeInterval {
         guard let until = distraction.breakGrantedUntil else { return 0 }
-        return max(0, until.timeIntervalSince(now))
+        return max(0, until.timeIntervalSinceNow)
     }
 
     func persistSelection() {

@@ -6,8 +6,8 @@
 import SwiftUI
 
 /// Bottom confirmation card over a dimmed backdrop: a red-outlined destructive
-/// action next to a black CANCEL. Shared by "End Session" and "Discard Session?"
-/// so both look exactly the same.
+/// action next to a black CANCEL. Used by "End Session"; generic so other
+/// destructive confirmations can share the same look.
 struct SessionConfirmSheet: View {
     let title: String
     let message: String
@@ -99,27 +99,5 @@ struct SessionConfirmSheet: View {
             .accessibilityElement(children: .contain)
             .accessibilityAddTraits(.isModal)
         }
-    }
-}
-
-/// Shown from the session-end form's back button: discarding deletes the session
-/// (video, analytics, break log) and returns to the timer setup on Home.
-struct DiscardSessionConfirm: View {
-    let onDiscard: () -> Void
-    let onCancel: () -> Void
-
-    var body: some View {
-        SessionConfirmSheet(
-            title: "Discard Session?",
-            message: "Your recorded session and analytics will be deleted permanently if you discard this session without saving.",
-            confirmTitle: "DISCARD",
-            confirmAccessibilityLabel: "Discard session",
-            confirmHint: "Permanently deletes this session's recording and analytics",
-            confirmInputLabels: ["discard", "discard session", "delete session"],
-            cancelHint: "Returns to your session details",
-            closeHint: "Keeps your session",
-            onConfirm: onDiscard,
-            onCancel: onCancel
-        )
     }
 }

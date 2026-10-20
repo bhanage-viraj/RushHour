@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>RushHourAppGroup</key>
+	<string>$(RUSHHOUR_APP_GROUP_ID)</string>
 	<key>FacebookAppID</key>
 	<string>3321197221513196</string>
 	<key>LSApplicationQueriesSchemes</key>
@@ -18,5 +20,7 @@
 	<array>
 		<string>SpecialGothicExpandedOne-Regular.ttf</string>
 	</array>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>We remove a session's saved wrap from your Photos when you delete that session.</string>
 </dict>
 </plist>

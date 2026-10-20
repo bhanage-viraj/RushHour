@@ -189,7 +189,7 @@ enum WrapRollupService {
         }
         guard !clips.isEmpty else { return false }
 
-        let totalFocus = clips.reduce(0.0) { $0 + $1.session.actualDuration }
+        let totalFocus = clips.reduce(0.0) { $0 + $1.session.focusDuration() }
         let count = clips.count
 
         // Header: weekly → the week's date range; monthly → "<Month> Rewind".

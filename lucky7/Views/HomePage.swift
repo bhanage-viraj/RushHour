@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 import AVFoundation
 
 // MARK: - Home Page
@@ -240,9 +241,8 @@ private enum HomeDesign {
     static let recordCenter = CGPoint(x: 201, y: 703)
     static let flip = CGRect(x: 326, y: 683, width: 40, height: 40)
     static let readyGlowSize = CGSize(width: 759.182, height: 479.275)
-    // This is the glow's center in the camera card's coordinate space. It must
-    // not include the camera card's page-level x origin.
-    static let readyGlowCenter = CGPoint(x: 203.932, y: 98)
+    // Convert the timer's center to the camera card's local coordinates.
+    static let readyGlowCenter = CGPoint(x: timer.midX - camera.minX, y: timer.midY - camera.minY)
 
     static func scale(in size: CGSize) -> CGFloat {
         min(size.width / Self.size.width, size.height / Self.size.height)
@@ -458,7 +458,11 @@ private struct RecordButton: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
+        let label: String = isReady ? "Start focus session" : "Start focus session, unavailable"
+        let hint: String = isReady ? "Begins timelapse recording and focus timer" : "Set a focus duration first"
+        let inputLabels: [String] = ["record", "start", "start session", "start recording", "start timelapse"]
+
+        return Button(action: action) {
             ZStack {
                 Circle()
                     .fill(Color.white.opacity(0.75))
@@ -474,9 +478,9 @@ private struct RecordButton: View {
             .animation(.easeInOut(duration: 0.2), value: isReady)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(isReady ? "Start focus session" : "Start focus session, unavailable")
-        .accessibilityHint(isReady ? "Begins timelapse recording and focus timer" : "Set a focus duration first")
-        .accessibilityInputLabels(["record", "start", "start session", "start recording", "start timelapse"])
+        .accessibilityLabel(label)
+        .accessibilityHint(hint)
+        .accessibilityInputLabels(inputLabels)
         .accessibilityAddTraits(.isButton)
     }
 }
@@ -790,8 +794,28 @@ private struct HomeTimeDial: View {
     }
 }
 
-#Preview {
+private extension HomePage {
+    static var readyPreview: HomePage {
+        var page = HomePage()
+        page._hours = State(initialValue: 2)
+        page._minutes = State(initialValue: 30)
+        return page
+    }
+}
+
+#Preview("Idle") {
     HomePage()
         .environmentObject(SessionTimerViewModel())
         .environmentObject(SessionRecordingViewModel())
+        .environmentObject(FocusViewModel())
+        .modelContainer(for: [Session.self, Distraction.self, PeriodWrap.self], inMemory: true)
+}
+
+#Preview("Ready") {
+    HomePage.readyPreview
+        .id("ready")
+        .environmentObject(SessionTimerViewModel())
+        .environmentObject(SessionRecordingViewModel())
+        .environmentObject(FocusViewModel())
+        .modelContainer(for: [Session.self, Distraction.self, PeriodWrap.self], inMemory: true)
 }
