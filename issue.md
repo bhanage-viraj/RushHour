@@ -139,3 +139,9 @@ On a phone, open End Session in compact and expanded recording and cancel using 
 
 ### Time complexity and compatibility
 Static smell scan: no new loop, query, concurrency or pagination shape. A fixed view hierarchy replaces duplicated presentation code; existing deletion and export work is unchanged. No data-model, app-identity, entitlement or dependency changes.
+
+
+### PR #82 review follow-up: large-text overflow
+Resolved the review finding at 320×568 with the largest accessibility text size. `ViewThatFits` retains the intrinsic card when it fits; otherwise the same card is available through a height-limited native `ScrollView`. The existing cancel/confirm callbacks and modal accessibility remain shared.
+
+Verification: all six default-size End/Discard renders at 320-, 375- and 402-point widths are pixel-identical before/after the follow-up. The original 18 width/content/text-size combinations were rendered again; the scroll fallback was verified natively because `ImageRenderer` does not capture its native scrolling content. A 320×568 native host with a 20-point top safe area reported a viewport at y=20–552, 551-point content, and successful scrolling from offset −20 to −1 to expose the bottom buttons. Native captures confirmed the close button at the initial scroll position and complete action buttons after scrolling. All 17 fitting layouts were pixel-identical to their pre-fix renders. The final simulator build, signed device build and whitespace check passed; live VoiceOver gestures remain unchecked.
