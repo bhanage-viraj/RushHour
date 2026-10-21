@@ -324,15 +324,31 @@ struct WrapShareComposer: View {
         HStack(spacing: 0) {
             ShareUtilityButton(
                 title: "Save",
-                systemImage: "square.and.arrow.down",
+                image: Image(systemName: "square.and.arrow.down"),
                 action: viewModel.saveSelectedToPhotos
             )
             .frame(maxWidth: .infinity)
 
             ShareUtilityButton(
                 title: "Share",
-                systemImage: "square.and.arrow.up",
+                image: Image(systemName: "square.and.arrow.up"),
                 action: viewModel.shareSelected
+            )
+            .frame(maxWidth: .infinity)
+
+            ShareUtilityButton(
+                title: "Instagram\nStory",
+                image: Image("InstagramShareIcon"),
+                iconSize: 48,
+                action: viewModel.shareSelectedToInstagramStory
+            )
+            .frame(maxWidth: .infinity)
+
+            ShareUtilityButton(
+                title: "Messages",
+                image: Image("MessagesShareIcon"),
+                iconSize: 48,
+                action: viewModel.shareSelectedToMessages
             )
             .frame(maxWidth: .infinity)
         }
@@ -431,14 +447,17 @@ struct WrapShareComposer: View {
 
 private struct ShareUtilityButton: View {
     let title: String
-    let systemImage: String
+    let image: Image
+    var iconSize: CGFloat = 24
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             VStack(spacing: 8) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 24, weight: .regular))
+                image
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: iconSize, height: iconSize)
                     .foregroundStyle(Color.black.opacity(0.8))
                     .frame(width: 48, height: 48)
 

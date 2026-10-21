@@ -1,37 +1,52 @@
-# Landscape wrap sharing
+# Match the reason drawer to Figma and restore direct share shortcuts
 
 ## Background and previous behavior
-Landscape recordings already preserved their aspect ratio, but the share composer still used the portrait layout and metadata scale. The newer local implementation needs to ship separately from the earlier orientation fix.
+Issue #62 reports missing artwork above the reason drawer. `RecordingPage` presented `ReasonFormView` in a native large sheet, leaving no space above its clipped top edge. The card filled available height instead of matching the supplied empty, focused, and filled frames.
+
+The wrap share panel had Save and Share, while Instagram Story and Messages were available only through existing destination handlers or the system activity sheet. The requested final behavior is four visible buttons directly on Rush Hour's panel.
 
 ## Changes
-1. Select a vertical template carousel and compact share panel when the extracted poster is wider than it is tall. Reuse the existing card, selection binding, accessible template adjustment, and share-button components. Add the landscape design assets and native navigation header. Hide only the vertical carousel’s top scroll-edge effect: iOS otherwise blurs the upper card behind the header when Transparent is selected, whereas Figma node 47:1609 keeps it sharp at 50% opacity.
-2. Use `WrapOverlayLayout` to share landscape unit/top-spacing calculations between SwiftUI preview and `ExportEngine`. Portrait values are retained. Review preview/export alignment together.
-3. Add Save using `PhotoLibrarySaver` for the prepared video or transparent PNG, retaining permission denial and save-error reporting. Both orientations reuse one Save/Share action row and existing output caching. The Save action writes to Photos; Share presents the native video/image share sheet. The native Back button is disabled while exporting/saving, preventing its cleanup from deleting a video that Photos is still consuming. Success banners are attached to the NavigationStack’s safe-area layout, below the navigation title in both landscape and portrait sharing.
+1. Present the reason form in a transparent full-screen modal. Draw the existing recording view through an 80% black dim, with the rounded drawer at the bottom and the Figma artwork behind its top edge. Keep the pending-prompt identity, Submit/Cancel callbacks, save-error alert, notification cancellation, and dismissal restriction.
+2. Match the reason card, watermark, title, placeholder, buttons, and focused drawer geometry to Figma. Use exact local Retina exports for the header and watermark and reuse the existing dotted background. Focus raises the drawer; keyboard overlap reduces the editor's visible area so long reasons remain editable above the keyboard. The native Done action and VoiceOver escape dismiss the keyboard.
+3. Add visible Instagram Story and Messages buttons alongside Save and Share in the shared portrait/landscape action row. Reuse the existing assets and `WrapShareViewModel` handlers, including capability checks, error messages, and attachment/export logic. Save still writes to Photos; Share still opens the native activity sheet.
 
-## Time complexity
-Static smell scan: at most three template cards; constant-time layout calculations. One existing Photos operation per save. No new per-record external I/O, unbounded collection, or pagination was added.
+## Design references
+Figma file: https://www.figma.com/design/WWMtHXoNzhu8kjOgyHc1RJ/Challenge-3
+- Empty: `97:1291`; typing: `97:1325`; filled: `97:1359`.
+- Header export: `97:1295`; card watermark: `97:1317`.
+- Related issue: #62.
+
+## Review and complexity
+No repository complexity gate was found. Lizard 1.24.0 reports the new reason-card helper at 4, the buttons helper at 2, and the existing pill helper unchanged at 2. Recording-method maximum remains 6, with the same 34 methods. Share-composer method complexities are unchanged (maximum 5). SwiftUI computed bodies also received a manual control-flow review.
+
+The review corrected two layout issues: scale the reason buttons with a 44-point minimum target so they fit narrow phones, and use a dark presentation with a light editor appearance so the status bar remains legible while the keyboard stays light. Layout-budget assertions passed at 320x568, 375x812, and 402x874.
+
+Design/correctness and Ponytail passes found no remaining blocker. Existing handlers/components/assets are reused; no dependency or speculative abstraction is added. Designed-module/registry pass is not applicable: this changes SwiftUI presentation/components, not a module contract or dispatch registry. RAMA was skipped at the user's request.
+
+Time-complexity smell scan: constant-time geometry and four static action buttons; no new collection loop, pagination, concurrency primitive, or per-item external I/O. Existing reason trimming remains linear in the text length. No performance optimization is claimed.
 
 ## Verify
+Requires Xcode and development-team signing access for a physical device.
+
 ```sh
 xcodebuild -project lucky7.xcodeproj -scheme RushHourDev -configuration Dev -destination 'generic/platform=iOS' -allowProvisioningUpdates build
-python3 scripts/check-camera-orientation.py
-python3 scripts/check-share-cards.py E8EE0633-8278-48A4-8F24-7321EAABBE1E /private/tmp/rushhour-landscape-cards
+xcodebuild -project lucky7.xcodeproj -scheme RushHourDev -configuration Dev -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
 ```
-The share check requires an already booted iOS 27 simulator. Signing requires team access.
 
-- [x] Signed Dev build with iOS 27 SDK.
-- [x] Existing share-card geometry/render checks: 18 passed, zero overflow failures.
-- [x] Existing camera orientation and segment stitching checks: 6 passed.
-- [x] Install and launch Rush Hour Dev on iPhone (3).
-- [x] User confirmed horizontal centering, template selection, and successful Photos saving on iPhone (3) before the header correction.
-- [x] Temporary iOS 27 production-composer render comparison: upper poster stripes remain sharp; pixels below the header are unchanged after disabling the top scroll-edge effect.
-- [x] User confirmed the corrected upper-card/header appearance on the phone.
-- [x] Review fix 1: temporary production-composer harness checks the native toolbar item is disabled while busy and enabled after completion.
-- [x] Review fix 2: rendered Saved to Photos and Copied to Clipboard banners below the title; portrait copy banner also passes the position check.
-- [x] Save/Share action row rendered in both orientations with the download/share SF Symbols; busy Back and success-banner checks still pass.
-- [ ] User confirmation of both review fixes and native Share in the latest phone build.
-- [ ] Photos denial and individual video/PNG export variants; successful save confirmed by user.
-- [ ] Actual native share-sheet handoff to installed apps.
+1. During recording, request a break from a blocked app and return to Rush Hour. Verify the artwork peeks above the dimmed drawer and blank input disables Submit.
+2. Focus the editor, enter a long reason, and scroll to the end. The cursor should stay above the keyboard. Done should return to the lowered drawer while preserving text.
+3. Submit to save the reason before unlocking, or Cancel to return without unlocking. A failed save must keep the app blocked and retain the form for retry.
+4. Open a portrait and a landscape wrap. Verify Save, Share, Instagram Story, and Messages all appear. Save writes to Photos; Share opens the native sheet; the two shortcuts use their respective app/composer or show the existing availability error.
 
-## Compatibility and limits
-No data migration, new dependency, or app identity change. Both portrait and landscape panels contain only Save and Share. Save writes the selected video or transparent PNG to Photos; Share opens the native iOS share sheet. App-specific shortcuts and Copy are omitted from these panels as requested. Other local shield/signing experiments are outside this change.
+## Validation completed
+- [x] User validated #62 on iPhone (3) before the final review adjustments.
+- [x] Final signed RushHourDev/Dev build and simulator build passed against `develop` with Xcode 27.1.
+- [x] Native modal fixtures rendered empty, filled, focused/long-text, and `.accessibility3` states. The focused editor was the first responder, retained light appearance, and its ending cursor remained above the keyboard.
+- [x] Native portrait/landscape share-panel fixtures showed all four buttons at 402- and 320-point widths. Action wiring was checked against the existing production handlers; fixture actions were stubbed to avoid external sharing.
+- [x] Twelve production break-method scenarios passed using a temporary fixture adding the missing `showResumeReminder` field. The repository's unmodified script has the same fixture omission on develop; no repository test files were changed.
+- [x] Local asset dimensions, Retina metadata, source call sites, and rendered slots checked; `git diff --check` passed.
+- [ ] Live Instagram Story handoff and Messages attachment sending on a configured phone.
+- [ ] Full VoiceOver gestures, iPad/floating keyboard, and rotation matrix.
+
+## Compatibility and scope
+No app identity, entitlements, data model, storage, or dependency changes. This branch is based on develop and excludes the separate recording/onboarding work in PR #80. Existing sessions and selected apps are preserved. Instagram/Messages capabilities still depend on the installed apps and device configuration; their direct buttons remain visible and use the existing errors when unavailable.
