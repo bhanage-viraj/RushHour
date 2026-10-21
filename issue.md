@@ -145,3 +145,37 @@ Static smell scan: no new loop, query, concurrency or pagination shape. A fixed 
 Resolved the review finding at 320×568 with the largest accessibility text size. `ViewThatFits` retains the intrinsic card when it fits; otherwise the same card is available through a height-limited native `ScrollView`. The existing cancel/confirm callbacks and modal accessibility remain shared.
 
 Verification: all six default-size End/Discard renders at 320-, 375- and 402-point widths are pixel-identical before/after the follow-up. The original 18 width/content/text-size combinations were rendered again; the scroll fallback was verified natively because `ImageRenderer` does not capture its native scrolling content. A 320×568 native host with a 20-point top safe area reported a viewport at y=20–552, 551-point content, and successful scrolling from offset −20 to −1 to expose the bottom buttons. Native captures confirmed the close button at the initial scroll position and complete action buttons after scrolling. All 17 fitting layouts were pixel-identical to their pre-fix renders. The final simulator build, signed device build and whitespace check passed; live VoiceOver gestures remain unchecked.
+
+## Monthly rewind background — issue #70
+
+### Background and changes
+The monthly rewind row used the bright system red/yellow/green gradient and lacked the texture and border in Figma frame `121:1678`. Update only `RewindRow` to the supplied darker color stops, three local vector dot textures, 16-point corners, black border, and matching play-icon/content spacing. Scale the textures with the row width and allow titles to wrap when they need more space.
+
+Design: https://www.figma.com/design/WWMtHXoNzhu8kjOgyHc1RJ/Challenge-3?node-id=121-1678&m=dev
+Issue: https://github.com/bhanage-viraj/RushHour/issues/70
+
+The existing My Sessions callsite still controls recap eligibility and monthly video navigation. No persistence, generation, playback, signing, or dependency changes. Native Canvas gradient interpolation was retained after comparing it with the Figma reference; the three texture images are the supplied SVGs, with no runtime download.
+
+### Review and time complexity
+- Correctness/design/Ponytail review: no blocking finding. One existing row callsite, one view implementation, three referenced assets; no new abstraction or dependency.
+- No repository complexity gate found. Manual control-flow count for `RewindRow.body` is 1 before and after (no branches). Lizard 1.24.0 reports parsed function scores [1, 2, 3] before and after, but misattributes a SwiftUI function name after nested view closures; the computed view body therefore received manual review.
+- Designed-module/registry check: not applicable; no module contract, factory, or registry changes. RAMA skipped at the user's request.
+- Time-complexity smell scan: fixed-size presentation with three texture layers; no new collection loop, query, pagination, concurrency, or per-item external I/O. No performance optimization claimed.
+
+### Verify
+Requires Xcode; device builds also require development-team signing access.
+
+```sh
+xcodebuild -project lucky7.xcodeproj -scheme RushHourDev -configuration Dev -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+xcodebuild -project lucky7.xcodeproj -scheme RushHourDev -configuration Dev -destination 'generic/platform=iOS' -allowProvisioningUpdates build
+git diff --check
+```
+
+Open My Sessions with an existing generated monthly recap. Check its Rewind row against the Figma frame, then tap it to open the existing monthly wrap. Try a long month name and larger text: the title should wrap and the row should grow without hiding its duration.
+
+### Validation completed
+- [x] Simulator and signed RushHourDev/Dev builds passed with Xcode 27.1 (27A9275).
+- [x] Sixteen isolated production-row renders passed: widths 280/335/354/362, May/September, default/Accessibility 3 text. The default May row at width 354 is 59 points high. The fixture source matches production `RewindRow`.
+- [x] Asset manifests and vector files validated; whitespace check passed.
+- [x] Installed the signed Dev build on iPhone (3); user replied “done” and requested PR/review after testing.
+- [ ] Live VoiceOver not tested. The existing combined title/duration label and playback hint are preserved; the background is hidden from accessibility.

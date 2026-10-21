@@ -515,38 +515,59 @@ struct RewindRow: View {
     var duration: String
 
     var body: some View {
-        HStack(spacing: 16) {
-            // Play Icon
+        HStack(spacing: 10) {
             Image(systemName: "play.circle")
-                .font(.system(size: 32, weight: .heavy))
-                .foregroundColor(.white)
-                .padding(4)
-//                .background(Circle().fill(Color.white))
-//                .overlay(Circle().stroke(Color.black, lineWidth: 2))
+                .font(.system(size: 24, weight: .heavy))
+                .frame(width: 24, height: 31)
 
-            // Title with outline effect (stacked shadows mimic a hard black stroke)
             Text(title)
                 .font(.custom("Special Gothic Expanded One", size: 20))
-                .foregroundColor(.white)
+                .fixedSize(horizontal: false, vertical: true)
 
-            Spacer()
+            Spacer(minLength: 0)
 
             Text(duration)
                 .font(.system(size: 12, weight: .heavy))
-                .foregroundColor(.white)
+                .fixedSize()
         }
+        .foregroundStyle(.white)
         .padding(.horizontal, 16)
-        .padding(.vertical, 16)
-        .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(
-                    LinearGradient(
-                        colors: [Color.red, Color.yellow, Color.green],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
-        )
+        .padding(.vertical, 14)
+        .background {
+            GeometryReader { geometry in
+                let scale = geometry.size.width / 354
+                ZStack(alignment: .topLeading) {
+                    Canvas { context, size in
+                        let gradient = Gradient(stops: [
+                            .init(color: Color(red: 211 / 255, green: 0, blue: 4 / 255), location: 0),
+                            .init(color: Color(red: 239 / 255, green: 163 / 255, blue: 0), location: 0.533654),
+                            .init(color: Color(red: 0, green: 171 / 255, blue: 28 / 255), location: 1)
+                        ])
+                        context.fill(
+                            Path(CGRect(origin: .zero, size: size)),
+                            with: .linearGradient(gradient, startPoint: .zero,
+                                                  endPoint: CGPoint(x: size.width, y: 0))
+                        )
+                    }
+                    Image("MonthlyRewindHalo")
+                        .resizable()
+                        .frame(width: 276 * scale, height: 276 * scale)
+                        .position(x: 177 * scale, y: 46 * scale)
+                    Image("MonthlyRewindCenter")
+                        .resizable()
+                        .frame(width: 173 * scale, height: 173 * scale)
+                        .position(x: geometry.size.width / 2 + 0.5 * scale,
+                                  y: geometry.size.height / 2 + 17 * scale)
+                    Image("MonthlyRewindOuter")
+                        .resizable()
+                        .frame(width: 354 * scale, height: 354 * scale)
+                        .position(x: 177 * scale, y: 46 * scale)
+                }
+            }
+            .accessibilityHidden(true)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(.black, lineWidth: 1))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(title), \(duration)")
         .accessibilityHint("Plays the monthly session rewind video")
