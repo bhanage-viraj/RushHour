@@ -403,8 +403,8 @@ struct RecordingPage: View {
         .fullScreenCover(isPresented: $showCrashSession) {
             CrashSessionScreen(onFlowComplete: completeSessionFlow)
         }
-        // jailbreak: reason sheet over the recording when a break was taken on the shield
-        .sheet(item: $pendingPrompt) { prompt in
+        // The transparent modal leaves room for the artwork above the reason drawer.
+        .fullScreenCover(item: $pendingPrompt) { prompt in
             ReasonFormView(
                 appName: prompt.distraction.appOpened.isEmpty ? "this app" : prompt.distraction.appOpened,
                 onSubmit: { takeBreak($0, for: prompt) },
@@ -416,22 +416,7 @@ struct RecordingPage: View {
             } message: {
                 Text("The app is still blocked. Please try submitting your reason again.")
             }
-            .presentationDetents([.large])
-            .presentationCornerRadius(40)
-            .presentationDragIndicator(.visible)
-            .presentationBackground {
-                LinearGradient(
-                    colors: [Color(red: 0x00/255.0, green: 0x32/255.0, blue: 0x61/255.0),
-                             Color(red: 0x0B/255.0, green: 0x1F/255.0, blue: 0x32/255.0)],
-                    startPoint: .top, endPoint: .bottom
-                )
-                .overlay {
-                    Image("ReasonSheetBg")
-                        .resizable()
-                        .scaledToFill()
-                        .blendMode(.overlay)
-                }
-            }
+            .presentationBackground(.clear)
             // sheet stays put until they actually submit or cancel — no swipe-away
             .interactiveDismissDisabled()
         }
