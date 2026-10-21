@@ -152,11 +152,14 @@ struct HomePage: View {
                     seconds: $seconds,
                     isReadyToRecord: isReadyToRecord,
                     cameraReady: sessionRecording.cameraReady,
+                    showUltraWideControl: sessionRecording.isBackCamera && sessionRecording.supportsUltraWide,
+                    isUltraWideActive: sessionRecording.isUltraWideActive,
                     showSetupTip: showSetupTip,
                     showStartTip: showStartTip,
                     onInteraction: { sessionRecording.noteHomePreviewInteraction() },
                     onSettings: { showSettings = true },
                     onFlip: { sessionRecording.switchCamera() },
+                    onZoomToggle: { sessionRecording.toggleBackCameraZoom() },
                     onRecord: startSession
                 )
                 .transition(.opacity)
@@ -233,6 +236,8 @@ private enum HomeDesign {
     static let setupTip = CGRect(x: 129, y: 281, width: 144, height: 29)
     static let startTip = CGRect(x: 99.5, y: 620, width: 203, height: 29)
     static let recordCenter = CGPoint(x: 201, y: 703)
+    /// Mirrors `flip` on the left of the record button (0.5× / 1× lens).
+    static let zoom = CGRect(x: 36, y: 683, width: 40, height: 40)
     static let flip = CGRect(x: 326, y: 683, width: 40, height: 40)
     static let readyGlowSize = CGSize(width: 759.182, height: 479.275)
     // Convert the timer's center to the camera card's local coordinates.
@@ -386,11 +391,14 @@ private struct HomeControls: View {
     @Binding var seconds: Int
     let isReadyToRecord: Bool
     let cameraReady: Bool
+    let showUltraWideControl: Bool
+    let isUltraWideActive: Bool
     let showSetupTip: Bool
     let showStartTip: Bool
     let onInteraction: () -> Void
     let onSettings: () -> Void
     let onFlip: () -> Void
+    let onZoomToggle: () -> Void
     let onRecord: () -> Void
 
     var body: some View {
@@ -446,6 +454,15 @@ private struct HomeControls: View {
                         scale: scale
                     )
                     .position(HomeDesign.center(of: HomeDesign.startTip, origin: origin, scale: scale))
+                }
+
+                if showUltraWideControl {
+                    ZoomLensButton(isUltraWide: isUltraWideActive, scale: scale) {
+                        onInteraction()
+                        onZoomToggle()
+                    }
+                    .disabled(!cameraReady)
+                    .position(HomeDesign.center(of: HomeDesign.zoom, origin: origin, scale: scale))
                 }
 
                 RecordButton(isReady: isReadyToRecord, scale: scale) {
@@ -518,6 +535,30 @@ private struct FlipCameraButton: View {
         .accessibilityLabel("Switch camera")
         .accessibilityHint("Switches between front and back camera")
         .accessibilityInputLabels(["flip camera", "switch camera", "front camera", "back camera"])
+    }
+}
+
+/// Left-of-record lens control for the back camera. Shows the current factor
+/// ("1x" / "0.5"); tap toggles wide ↔ ultra-wide.
+private struct ZoomLensButton: View {
+    let isUltraWide: Bool
+    let scale: CGFloat
+    let action: () -> Void
+
+    private var label: String { isUltraWide ? "0.5" : "1x" }
+
+    var body: some View {
+        Button(action: action) {
+            Text(label)
+                .font(.system(size: 13 * scale, weight: .bold, design: .rounded))
+                .foregroundStyle(Color(red: 52 / 255, green: 52 / 255, blue: 52 / 255))
+                .frame(width: 40 * scale, height: 40 * scale)
+                .background(Color.white.opacity(0.75), in: Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(isUltraWide ? "Ultra wide 0.5x" : "Standard 1x")
+        .accessibilityHint(isUltraWide ? "Switches to the standard back camera" : "Switches to the wider 0.5x camera")
+        .accessibilityInputLabels(["zoom", "0.5", "ultra wide", "wide angle", "1x"])
     }
 }
 

@@ -89,6 +89,22 @@ final class TimelapseManager: NSObject {
 
     var captureSession: AVCaptureSession { session }
 
+    /// True when this device exposes a back ultra-wide lens (0.5× in Camera).
+    static var isUltraWideCameraAvailable: Bool {
+        AVCaptureDevice.default(.builtInUltraWideCamera, for: .video, position: .back) != nil
+    }
+
+    /// Active camera position for the live preview (main-thread snapshot).
+    var currentCameraPosition: AVCaptureDevice.Position {
+        (session.inputs.first as? AVCaptureDeviceInput)?.device.position ?? .unspecified
+    }
+
+    /// Whether the live back camera is the ultra-wide (0.5×) lens.
+    var isUsingUltraWideCamera: Bool {
+        guard let device = (session.inputs.first as? AVCaptureDeviceInput)?.device else { return false }
+        return device.position == .back && device.deviceType == .builtInUltraWideCamera
+    }
+
     override init() {
         super.init()
         NotificationCenter.default.addObserver(self, selector: #selector(cameraRuntimeError(_:)), name: AVCaptureSession.runtimeErrorNotification, object: session)
@@ -172,53 +188,106 @@ final class TimelapseManager: NSObject {
             NotificationCenter.default.post(name: .cameraSwitchWillBegin, object: self.session)
             self.sessionQueue.async {
                 let started = ProcessInfo.processInfo.systemUptime
-                let finish: (Bool, AVCaptureDevice?) -> Void = { ready, device in
-                    DispatchQueue.main.async {
-                        if let device {
-                            self.publishCameraDevice(device)
-                        } else {
-                            NotificationCenter.default.post(name: .cameraConfigurationDidChange, object: self.session)
-                        }
-                        completion(ready)
-                    }
-                }
                 guard let previous = self.session.inputs.first as? AVCaptureDeviceInput else {
-                    finish(false, nil)
+                    self.finishCameraSwap(ready: false, device: nil, completion: completion)
                     return
                 }
                 let position: AVCaptureDevice.Position = previous.device.position == .front ? .back : .front
-                guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position),
-                      let input = try? AVCaptureDeviceInput(device: device) else {
-                    finish(true, nil) // Previous camera remains usable.
+                // Front ↔ back always lands on the standard wide lens (1×). Ultra-wide
+                // is only selected via setBackCameraUltraWide.
+                guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position) else {
+                    self.finishCameraSwap(ready: true, device: nil, completion: completion)
                     return
                 }
-
-                // Keep the output and preview alive. Rebuilding the entire capture graph
-                // causes a long blank interval; only the camera input needs to change.
-                self.session.beginConfiguration()
-                self.session.removeInput(previous)
-                let switched = self.session.canAddInput(input)
-                if switched {
-                    self.session.addInput(input)
-                } else if self.session.canAddInput(previous) {
-                    self.session.addInput(previous)
-                }
+                let switched = self.replaceVideoInput(with: device, previous: previous, reason: "switchCamera")
                 let activeDevice = switched ? device : previous.device
-                self.prepareCaptureConnection()
-                self.session.commitConfiguration()
-                self.prepareCaptureConnection()
-                self.cameraShouldRun = true
-                if !self.session.isRunning { self.session.startRunning() }
-                self.applyActivePowerProfile(reason: "switchCamera")
-                let ready = !self.session.inputs.isEmpty
                 self.log("camera switch success=\(switched) durationMs=\(Int((ProcessInfo.processInfo.systemUptime - started) * 1000))")
-                finish(ready, activeDevice)
+                self.finishCameraSwap(ready: !self.session.inputs.isEmpty, device: activeDevice, completion: completion)
             }
         }
         if Thread.isMainThread {
             start()
         } else {
             DispatchQueue.main.async(execute: start)
+        }
+    }
+
+    /// Toggle the back camera between the standard wide (1×) and ultra-wide (0.5×) lenses.
+    func setBackCameraUltraWide(_ useUltraWide: Bool, completion: @escaping (Bool) -> Void) {
+        let start = {
+            NotificationCenter.default.post(name: .cameraSwitchWillBegin, object: self.session)
+            self.sessionQueue.async {
+                let started = ProcessInfo.processInfo.systemUptime
+                guard let previous = self.session.inputs.first as? AVCaptureDeviceInput,
+                      previous.device.position == .back else {
+                    self.finishCameraSwap(ready: true, device: nil, completion: completion)
+                    return
+                }
+
+                let deviceType: AVCaptureDevice.DeviceType = useUltraWide
+                    ? .builtInUltraWideCamera
+                    : .builtInWideAngleCamera
+                guard let device = AVCaptureDevice.default(deviceType, for: .video, position: .back) else {
+                    self.log("back lens unavailable ultraWide=\(useUltraWide)")
+                    self.finishCameraSwap(ready: true, device: previous.device, completion: completion)
+                    return
+                }
+                if previous.device.uniqueID == device.uniqueID {
+                    self.finishCameraSwap(ready: true, device: previous.device, completion: completion)
+                    return
+                }
+
+                let switched = self.replaceVideoInput(with: device, previous: previous, reason: "backZoom")
+                let activeDevice = switched ? device : previous.device
+                self.log("back zoom ultraWide=\(useUltraWide) success=\(switched) durationMs=\(Int((ProcessInfo.processInfo.systemUptime - started) * 1000))")
+                self.finishCameraSwap(ready: !self.session.inputs.isEmpty, device: activeDevice, completion: completion)
+            }
+        }
+        if Thread.isMainThread {
+            start()
+        } else {
+            DispatchQueue.main.async(execute: start)
+        }
+    }
+
+    /// Swap only the camera input; keep the output and preview graph alive.
+    @discardableResult
+    private func replaceVideoInput(
+        with device: AVCaptureDevice,
+        previous: AVCaptureDeviceInput,
+        reason: String
+    ) -> Bool {
+        guard let input = try? AVCaptureDeviceInput(device: device) else { return false }
+
+        session.beginConfiguration()
+        session.removeInput(previous)
+        let switched = session.canAddInput(input)
+        if switched {
+            session.addInput(input)
+        } else if session.canAddInput(previous) {
+            session.addInput(previous)
+        }
+        prepareCaptureConnection()
+        session.commitConfiguration()
+        prepareCaptureConnection()
+        cameraShouldRun = true
+        if !session.isRunning { session.startRunning() }
+        applyActivePowerProfile(reason: reason)
+        return switched
+    }
+
+    private func finishCameraSwap(
+        ready: Bool,
+        device: AVCaptureDevice?,
+        completion: @escaping (Bool) -> Void
+    ) {
+        DispatchQueue.main.async {
+            if let device {
+                self.publishCameraDevice(device)
+            } else {
+                NotificationCenter.default.post(name: .cameraConfigurationDidChange, object: self.session)
+            }
+            completion(ready)
         }
     }
 
