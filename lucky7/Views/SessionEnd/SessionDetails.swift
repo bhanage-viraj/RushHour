@@ -18,7 +18,6 @@ struct SessionDetails: View {
 
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @EnvironmentObject private var sessionRecording: SessionRecordingViewModel
     @Query private var sessions: [Session]
 
@@ -97,6 +96,7 @@ struct SessionDetails: View {
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button {
+                            focusedField = nil
                             withAnimation(.easeInOut(duration: 0.2)) { showDiscardConfirm = true }
                         } label: {
                             Image(systemName: "chevron.left")
@@ -108,21 +108,12 @@ struct SessionDetails: View {
                     }
                 }
         }
+        .accessibilityHidden(showDiscardConfirm)
         .overlay {
-            Color.black.opacity(showDiscardConfirm ? 0.3 : 0)
-                .ignoresSafeArea()
-                .allowsHitTesting(false)
-        }
-        .animation(.easeInOut(duration: 0.2), value: showDiscardConfirm)
-        .sheet(isPresented: $showDiscardConfirm) {
-            ScrollView(showsIndicators: false) {
+            if showDiscardConfirm {
                 discardConfirmation
+                    .transition(.opacity)
             }
-            .scrollBounceBehavior(.basedOnSize)
-            .presentationDetents(dynamicTypeSize.isAccessibilitySize ? [.large] : [.height(250)])
-            .presentationDragIndicator(.visible)
-            .presentationCornerRadius(24)
-            .presentationBackground(.white)
         }
         .interactiveDismissDisabled()
     }
@@ -153,7 +144,6 @@ struct SessionDetails: View {
                 .frame(maxWidth: .infinity)
             }
         }
-        .accessibilityHidden(showDiscardConfirm)
         .onAppear {
             loadSessionDraft()
             restoreRecoverableVideoState()
@@ -350,54 +340,18 @@ struct SessionDetails: View {
     // MARK: - Discard confirmation
 
     private var discardConfirmation: some View {
-        VStack(spacing: 24) {
-            VStack(spacing: 8) {
-                Text("Discard Session?")
-                    .font(.custom("Special Gothic Expanded One", size: 22))
-                Text("Your recorded session and analytics will be deleted permanently if you discard this session without saving.")
-                    .font(.system(size: 17))
-            }
-            .foregroundStyle(Color.black.opacity(0.8))
-            .multilineTextAlignment(.center)
-            .fixedSize(horizontal: false, vertical: true)
-
-            HStack(spacing: 12) {
-                Button(action: discardSession) {
-                    Text("DISCARD")
-                        .frame(maxWidth: .infinity, minHeight: 48)
-                        .foregroundStyle(Color("SessionDetailsRed"))
-                        .background(.white, in: Capsule())
-                        .overlay(Capsule().stroke(Color("SessionDetailsRed"), lineWidth: 1))
-                }
-                .accessibilityLabel("Discard session permanently")
-
-                Button(action: dismissDiscardConfirm) {
-                    Text("CANCEL")
-                        .frame(maxWidth: .infinity, minHeight: 48)
-                        .foregroundStyle(.white)
-                        .background(Color("SessionDetailsBlack"), in: Capsule())
-                }
-            }
-            .font(.custom("Special Gothic Expanded One", size: 14))
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 20)
-        .padding(.top, 32)
-        .padding(.bottom, 20)
-        .frame(maxWidth: 450)
-        .overlay(alignment: .topTrailing) {
-            Button(action: dismissDiscardConfirm) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 16, weight: .heavy))
-                    .foregroundStyle(Color("SessionDetailsBlack80"))
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .padding(.top, 5)
-            .padding(.trailing, 7)
-            .accessibilityLabel("Keep session")
-        }
+        SessionConfirmSheet(
+            title: "Discard Session?",
+            message: "Your recorded session and analytics will be deleted permanently if you discard this session without saving.",
+            confirmTitle: "DISCARD",
+            confirmAccessibilityLabel: "Discard session permanently",
+            confirmHint: "Deletes this session and its analytics without saving",
+            confirmInputLabels: ["discard", "discard session"],
+            cancelHint: "Keeps your session details so you can continue editing",
+            closeHint: "Cancels discarding the session",
+            onConfirm: discardSession,
+            onCancel: dismissDiscardConfirm
+        )
     }
 
     private func dismissDiscardConfirm() {

@@ -107,3 +107,41 @@ xcodebuild -project lucky7.xcodeproj -scheme RushHourDev -configuration Dev -des
 
 ### Compatibility and scope
 No app identity, entitlements, data model, storage, or dependency changes. These notes preserve the reason-drawer and sharing changes already merged into develop through PR #81 alongside PR #80’s recording/onboarding work. Existing sessions and selected apps are preserved. Instagram/Messages capabilities still depend on the installed apps and device configuration; their direct buttons remain visible and use the existing errors when unavailable.
+
+## End Session and Discard Session drawers — issue #66
+
+### Background and changes
+The End Session X occupied a full row below the drag indicator, pushing the content down. The completed-session Discard confirmation used a native sliding sheet with a separate layout and dim layer.
+
+1. Match the shared `SessionConfirmSheet` to Figma: top-right X outside content flow, 12-point side margins, 16-point bottom inset, 24-point corners and spacing, 2-point black border, 50% black dim, and existing design color assets. Keep its 44-point close target and existing End/Cancel callbacks; let headings grow and keep action labels on one line at larger text sizes.
+2. Reuse that component for the completed-session Discard drawer. Fade it over the Details screen, clear keyboard focus when Back opens it, hide the covered screen from accessibility, and support VoiceOver Escape through the shared cancel callback. Remove the superseded native-sheet configuration and duplicated card contents. Keep the existing save/delete/error-handling code.
+
+### Design references
+- End Session compact: https://www.figma.com/design/WWMtHXoNzhu8kjOgyHc1RJ/Challenge-3?node-id=114-1520
+- End Session expanded: https://www.figma.com/design/WWMtHXoNzhu8kjOgyHc1RJ/Challenge-3?node-id=114-1536
+- Discard Session: https://www.figma.com/design/WWMtHXoNzhu8kjOgyHc1RJ/Challenge-3?node-id=116-1566
+
+### Verification
+- [x] RushHourDev/Dev simulator and signed device builds passed with Xcode 27.1.
+- [x] End drawer rendered at 402-, 375- and 320-point widths, compact/expanded, default and accessibility text sizes (12 combinations). Default-size geometry checks confirmed the 213-point card, side/bottom insets and X position.
+- [x] Native iOS 26.5 and iOS 27 simulator captures verified both drawers and bottom safe-area placement. Discard captures confirmed the 50% dim and were exercised after focusing the title field and at accessibility text size.
+- [x] Temporary completed-session fixture used production view/callback code and in-memory SwiftData: Cancel retained the title, description, session and break log; Discard removed the session and break log and invoked completion. Recording/media services were stubbed in this isolated check; the production deletion implementation is unchanged.
+- [x] Both updates installed on iPhone (3); user confirmed they look good.
+- [x] `git diff --check` passed.
+- [ ] Live VoiceOver gestures and iPad layout.
+
+```sh
+xcodebuild -project lucky7.xcodeproj -scheme RushHourDev -configuration Dev -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+xcodebuild -project lucky7.xcodeproj -scheme RushHourDev -configuration Dev -destination 'generic/platform=iOS' -allowProvisioningUpdates build
+```
+
+On a phone, open End Session in compact and expanded recording and cancel using X or Cancel. Finish a session, enter Details text, tap Back and confirm the drawer fades over a darker background. Cancel must preserve the text; Discard must exit through the existing deletion flow. Repeat with larger text.
+
+### Time complexity and compatibility
+Static smell scan: no new loop, query, concurrency or pagination shape. A fixed view hierarchy replaces duplicated presentation code; existing deletion and export work is unchanged. No data-model, app-identity, entitlement or dependency changes.
+
+
+### PR #82 review follow-up: large-text overflow
+Resolved the review finding at 320×568 with the largest accessibility text size. `ViewThatFits` retains the intrinsic card when it fits; otherwise the same card is available through a height-limited native `ScrollView`. The existing cancel/confirm callbacks and modal accessibility remain shared.
+
+Verification: all six default-size End/Discard renders at 320-, 375- and 402-point widths are pixel-identical before/after the follow-up. The original 18 width/content/text-size combinations were rendered again; the scroll fallback was verified natively because `ImageRenderer` does not capture its native scrolling content. A 320×568 native host with a 20-point top safe area reported a viewport at y=20–552, 551-point content, and successful scrolling from offset −20 to −1 to expose the bottom buttons. Native captures confirmed the close button at the initial scroll position and complete action buttons after scrolling. All 17 fitting layouts were pixel-identical to their pre-fix renders. The final simulator build, signed device build and whitespace check passed; live VoiceOver gestures remain unchecked.
