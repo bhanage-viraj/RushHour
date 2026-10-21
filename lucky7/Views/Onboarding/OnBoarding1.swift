@@ -17,9 +17,10 @@ struct OnBoarding1: View {
             OnboardingScreenTemplate(
                 step: 1,
                 onContinue: { path.append(2) }
-            ) {
-                mainContent
+            ) { scale in
+                mainContent(scale: scale)
             }
+            .task { await NotificationPermission.requestIfNeeded() }
             .navigationDestination(for: Int.self) { step in
                 switch step {
                 case 2:
@@ -35,37 +36,30 @@ struct OnBoarding1: View {
         }
     }
     
-    private var mainContent: some View {
-        VStack(spacing: 0) {
-            VStack(spacing: 0) {
-                Text("Twelve tabs.")
-                    .font(.custom("Special Gothic Expanded One", size: 28))
-                Text("Six deadlines.")
-                    .font(.custom("Special Gothic Expanded One", size: 28))
-                Text("One you.")
-                    .font(.custom("Special Gothic Expanded One", size: 28))
-                    .padding(.bottom, 10)
+    private func mainContent(scale: CGFloat) -> some View {
+        VStack(spacing: 24 * scale) {
+            VStack(spacing: 16 * scale) {
+                OnboardingTitle(text: "Twelve tabs.\nSix deadlines.\nOne you.", scale: scale)
 
-                Text(
-                    "Everything feels urgent but nothing feels finished. You're stuck in \(Text("Rush Hour").bold().italic())"
-                )
-                .font(.system(size: 17))
-                .multilineTextAlignment(.center)
+                Text("Everything feels urgent\nbut nothing feels finished.\nYou're stuck in \(Text("Rush Hour").bold().italic())")
+                    .font(.system(size: 17 * scale))
+                    .foregroundStyle(Color(white: 38 / 255).opacity(0.8))
+                    .lineSpacing(2 * scale)
+                    .frame(height: 66 * scale)
             }
-            .foregroundStyle(.black)
             .multilineTextAlignment(.center)
             .fixedSize(horizontal: false, vertical: true)
 
             Image("group206")
                 .resizable()
-                .scaledToFit()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .layoutPriority(1)
-                .padding(.horizontal, 4)
-                .padding(.bottom, 4)
+                .frame(width: 303 * scale, height: 345 * scale)
+                .offset(x: 3.45 * scale, y: 18.25 * scale)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .accessibilityHidden(true)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
+
 }
 
 #Preview {

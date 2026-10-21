@@ -102,42 +102,14 @@ struct RecordingPage: View {
         let id = UUID()
     }
 
-    private var recordingStatusPill: some View {
-        HStack(spacing: 7) {
-            if sessionTimer.isRunning {
-                Circle()
-                    .fill(.white)
-                    .frame(width: 8, height: 8)
-                Text("Recording")
-            } else {
-                Image(systemName: "pause.fill")
-                    .font(.system(size: 10, weight: .bold))
-                Text("Paused")
-            }
-        }
-        .font(.system(size: 12, weight: .semibold))
-        .foregroundColor(.white)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 7)
-        .background(sessionTimer.isRunning ? Color.red : Color(white: 0.26), in: Capsule())
-        .animation(.easeInOut(duration: 0.2), value: sessionTimer.isRunning)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(sessionTimer.isRunning ? "Recording in progress" : "Recording paused")
-        .accessibilityValue(
-            "\(sessionRecording.capturedFrameCount) frames captured. \(AccessibilitySupport.spokenCountdown(hours: sessionTimer.hours, minutes: sessionTimer.minutes, seconds: sessionTimer.seconds))"
-        )
-        .accessibilityAddTraits(.updatesFrequently)
-    }
-
     var body: some View {
 
         ZStack {
 
-            // Expanded background — full-focus mode. Standalone only; when embedded,
+            // Session background. Standalone only; when embedded,
             // HomePage draws the session background beneath its shared camera.
             if !embedded {
-                RecordingBackground()
-                    .opacity(isExpanded ? 1 : 0)
+                RecordingBackground(isExpanded: isExpanded, isPaused: hasStarted && !sessionTimer.isRunning)
                     .animation(focusTransition, value: isExpanded)
             }
 
@@ -146,25 +118,27 @@ struct RecordingPage: View {
             // and morphs it into the circle itself, so we draw no camera here.
             if !embedded {
                 GeometryReader { geo in
-                    let circleSize: CGFloat = 164
-                    let cameraW: CGFloat = isExpanded ? circleSize : geo.size.width
-                    let cameraH: CGFloat = isExpanded ? circleSize : geo.size.height
-                    let camCenterY: CGFloat = isExpanded
-                        ? geo.safeAreaInsets.top + 168
-                        : geo.size.height / 2
+                    let layout = RecordingLayout(size: geo.size, isExpanded: isExpanded,
+                                                 isPaused: hasStarted && !sessionTimer.isRunning)
+                    let camera = layout.camera
 
                     ZStack {
-                        // Drop-shadow behind the camera circle (expanded only)
-                        Circle()
-                            .fill(Color.black)
-                            .frame(width: circleSize, height: circleSize)
-                            .position(x: geo.size.width / 2, y: camCenterY + 10)
-                            .opacity(isExpanded ? 1 : 0)
-
                         CameraPreview(session: sessionRecording.captureSession)
-                            .frame(width: cameraW, height: cameraH)
-                            .clipShape(RoundedRectangle(cornerRadius: isExpanded ? circleSize / 2 : 0))
-                            .position(x: geo.size.width / 2, y: camCenterY)
+                            .frame(width: camera.width, height: camera.height)
+                            .overlay {
+                                if !isExpanded {
+                                    RecordingCameraShading(isPaused: hasStarted && !sessionTimer.isRunning)
+                                }
+                            }
+                            .clipShape(RoundedRectangle(cornerRadius: isExpanded ? camera.width / 2 : 30 * layout.scale))
+                            .shadow(color: isExpanded ? .black : .clear, radius: 0, y: 4 * layout.scale)
+                            .overlay {
+                                if !isExpanded {
+                                    RoundedRectangle(cornerRadius: 30 * layout.scale)
+                                        .strokeBorder(.black, lineWidth: 2 * layout.scale)
+                                }
+                            }
+                            .position(x: camera.midX, y: camera.midY)
                             .accessibilityElement(children: .ignore)
                             .accessibilityLabel("Camera preview")
                             .accessibilityHint("Live timelapse camera feed")
@@ -185,111 +159,19 @@ struct RecordingPage: View {
                 .ignoresSafeArea()
             }
 
-            VStack(spacing: 0) {
-                // COUNTDOWN — live remaining time in the traffic housing, with a soft
-                // rainbow glow BEHIND it (peeking out just below) while paused.
-                ZStack {
-                    if hasStarted && !sessionTimer.isRunning {
-                        Image("RainbowEffect")
-                            .resizable()
-                            .scaledToFill()
-                            .frame(width: 240, height: 46)
-                            .blur(radius: 14)
-                            .opacity(0.85)
-                            .offset(y: 28)
-                            .allowsHitTesting(false)
-                            .accessibilityDecorative()
-                            .transition(.opacity)
-                    }
-
-                    RecordingTrafficTimer(
-                        hours: sessionTimer.hours,
-                        minutes: sessionTimer.minutes,
-                        seconds: sessionTimer.seconds
-                    )
-                }
-                .padding(.top, 8)
-
-                if hasStarted {
-                    recordingStatusPill
-                        .padding(.top, 12)
-                }
-
-                Spacer()
-
-                // CONTROL BAR — stop · pause/resume · expand
-                HStack {
-                    // STOP — ask before ending the session early
-                    Button(action: { withAnimation(.easeInOut(duration: 0.2)) { showEndConfirm = true } }) {
-                        Circle()
-                            .fill(.ultraThinMaterial)
-                            .frame(width: 60, height: 60)
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                    .fill(Color.red)
-                                    .frame(width: 22, height: 22)
-                            }
-                    }
-                    .accessibilityLabel("End session")
-                    .accessibilityHint("Stops recording and ends your focus session early")
-                    .accessibilityInputLabels(["stop", "end session", "stop recording", "end timelapse"])
-
-                    Spacer()
-
-                    // PAUSE / RESUME
-                    Button(action: togglePauseResume) {
-                        Circle()
-                            .fill(.white)
-                            .frame(width: 82, height: 82)
-                            .overlay {
-                                Image(systemName: sessionTimer.isRunning ? "pause.fill" : "play.fill")
-                                    .font(.system(size: 30, weight: .semibold))
-                                    .foregroundStyle(.black)
-                            }
-                            .shadow(color: .black.opacity(0.2), radius: 6, y: 3)
-                    }
-                    .accessibilityLabel(sessionTimer.isRunning ? "Pause session" : "Resume session")
-                    .accessibilityHint(sessionTimer.isRunning ? "Pauses the timer and timelapse recording" : "Resumes the timer and timelapse recording")
-                    .accessibilityInputLabels(sessionTimer.isRunning
-                        ? ["pause", "pause session", "pause recording"]
-                        : ["resume", "play", "resume session", "continue recording"])
-                    .disabled(isPauseResumeTransitioning)
-                    .opacity(isPauseResumeTransitioning ? 0.65 : 1)
-
-                    Spacer()
-
-                    // EXPAND — fullscreen focus view
-                    // EXPAND — full-focus view (same camera, different chrome)
-                    Button(action: { withAnimation(focusTransition) { isExpanded = true } }) {
-                        Circle()
-                            .fill(.ultraThinMaterial)
-                            .frame(width: 60, height: 60)
-                            .overlay {
-                                Image(systemName: "arrow.down.right.and.arrow.up.left")
-                                    .font(.system(size: 21, weight: .semibold))
-                                    .foregroundStyle(.white)
-                            }
-                    }
-                    .accessibilityLabel("Enter full focus mode")
-                    .accessibilityHint("Shows a larger timer with fewer distractions")
-                    .accessibilityInputLabels(["expand", "full focus", "focus mode", "fullscreen"])
-                }
-                .padding(.horizontal, 44)
-                .padding(.bottom, 24)
-            }
-            .opacity(isExpanded ? 0 : 1)
-            .scaleEffect(isExpanded ? 0.98 : 1)
-            .blur(radius: isExpanded ? 5 : 0)
+            RecordingControls(
+                hours: sessionTimer.hours,
+                minutes: sessionTimer.minutes,
+                seconds: sessionTimer.seconds,
+                hasStarted: hasStarted,
+                isRunning: sessionTimer.isRunning,
+                isExpanded: isExpanded,
+                isTransitioning: isPauseResumeTransitioning,
+                onEnd: { withAnimation(.easeInOut(duration: 0.2)) { showEndConfirm = true } },
+                onPauseResume: togglePauseResume,
+                onToggleExpanded: { withAnimation(focusTransition) { isExpanded.toggle() } }
+            )
             .animation(focusTransition, value: isExpanded)
-            .allowsHitTesting(!isExpanded)
-
-            // ── Expanded (full-focus) overlay ─────────────────
-            expandedSessionOverlay
-                .opacity(isExpanded ? 1 : 0)
-                .scaleEffect(isExpanded ? 1 : 1.02)
-                .blur(radius: isExpanded ? 0 : 5)
-                .animation(focusTransition, value: isExpanded)
-                .allowsHitTesting(isExpanded)
 
             if sessionRecording.isExporting {
                 Color.black.opacity(0.55)
@@ -537,153 +419,6 @@ struct RecordingPage: View {
             .presentationBackground(.clear)
             // sheet stays put until they actually submit or cancel — no swipe-away
             .interactiveDismissDisabled()
-        }
-    }
-
-    // MARK: - Expanded (full-focus) overlay
-
-    @ViewBuilder
-    private var expandedSessionOverlay: some View {
-        VStack(spacing: 0) {
-            Color.clear.frame(height: 24)
-
-            // Paused badge (top-left)
-            HStack {
-                Text("PAUSED")
-                    .foregroundStyle(.white)
-                    .font(.system(size: 14))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(
-                        Capsule()
-                            .fill(Color(.canvasRed))
-                    )
-                    .opacity(sessionTimer.isRunning ? 0 : 1)
-                    .accessibilityHidden(sessionTimer.isRunning)
-                    .accessibilityLabel("Paused")
-            }
-            .frame(maxWidth: .infinity, alignment: .center)
-            .padding(.horizontal, 12)
-
-            Color.clear.frame(height: 40)
-
-            // Space for the camera circle (rendered in the camera layer)
-            Color.clear.frame(height: 164)
-
-            // Traffic-light timer
-            ZStack(alignment: .center) {
-                if !sessionTimer.isRunning {
-                    Image(.redYellowGreen)
-                        .frame(height: 136)
-                        .accessibilityDecorative()
-                }
-
-                Image(.trafficLight)
-                    .accessibilityDecorative()
-
-                HStack {
-                    Text("\(sessionTimer.hours)")
-                        .font(.custom("Special Gothic Expanded One", size: 34))
-                        .frame(width: 104, height: 102)
-
-                    Text(String(format: "%02d", sessionTimer.minutes))
-                        .font(.custom("Special Gothic Expanded One", size: 34))
-                        .frame(width: 104, height: 102)
-
-                    Text(String(format: "%02d", sessionTimer.seconds))
-                        .font(.custom("Special Gothic Expanded One", size: 34))
-                        .frame(width: 110, height: 102)
-                        .clipped()
-                }
-                .foregroundStyle(.white)
-                .frame(height: 136)
-                .zIndex(2.0)
-                .offset(y: -8)
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Time remaining")
-            .accessibilityValue(AccessibilitySupport.spokenCountdown(
-                hours: sessionTimer.hours,
-                minutes: sessionTimer.minutes,
-                seconds: sessionTimer.seconds
-            ))
-            .accessibilityAddTraits(.updatesFrequently)
-            .padding(.top, 36)
-
-            Spacer()
-
-            VStack(alignment: .center) {
-                Text("Tips:")
-                Text("Don't forget to take break")
-            }
-            .opacity(0.5)
-            .foregroundStyle(.white)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("Tip: Don't forget to take a break")
-
-            Spacer()
-
-            // Bottom control bar — same actions as minimized, different style
-            HStack {
-                // STOP
-                Button(action: {
-                    withAnimation(.easeInOut(duration: 0.2)) { showEndConfirm = true }
-                }) {
-                    ZStack {
-                        Circle()
-                            .fill(.white.opacity(0.75))
-                            .frame(width: 56, height: 56)
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(.red)
-                            .frame(width: 20, height: 20)
-                    }
-                }
-                .accessibilityLabel("End session")
-                .accessibilityHint("Stops recording and ends your focus session early")
-                .accessibilityInputLabels(["stop", "end session", "stop recording"])
-
-                Spacer()
-
-                // PAUSE / RESUME (uses the unified togglePauseResume)
-                Button(action: togglePauseResume) {
-                    ZStack {
-                        Circle()
-                            .fill(.white.opacity(0.75))
-                            .frame(width: 100, height: 100)
-                        Image(systemName: sessionTimer.isRunning ? "pause.fill" : "play.fill")
-                            .font(.system(size: 36))
-                            .foregroundStyle(.black)
-                    }
-                }
-                .accessibilityLabel(sessionTimer.isRunning ? "Pause session" : "Resume session")
-                .accessibilityInputLabels(sessionTimer.isRunning ? ["pause"] : ["resume", "play"])
-                .disabled(isPauseResumeTransitioning)
-                .opacity(isPauseResumeTransitioning ? 0.65 : 1)
-
-                Spacer()
-
-                // MINIMIZE — shrink back to the recording page layout
-                Button(action: {
-                    withAnimation(focusTransition) {
-                        isExpanded = false
-                    }
-                }) {
-                    ZStack {
-                        Circle()
-                            .fill(.white.opacity(0.75))
-                            .frame(width: 56, height: 56)
-                        Image(systemName: "arrow.up.left.and.arrow.down.right")
-                            .font(.system(size: 18))
-                            .foregroundStyle(.black)
-                    }
-                }
-                .accessibilityLabel("Exit full focus mode")
-                .accessibilityHint("Returns to the standard recording layout")
-                .accessibilityInputLabels(["minimize", "exit focus", "collapse"])
-            }
-            .padding(.horizontal, 24)
-
-            Color.clear.frame(height: 16)
         }
     }
 
@@ -954,76 +689,6 @@ struct RecordingPage: View {
     }
 }
 
-
-// MARK: - Countdown housing
-//
-// Compact, label-less version of the home traffic housing: three split shell
-// layers in a dark rounded bar, showing the live remaining time.
-
-private struct RecordingTrafficTimer: View {
-    let hours: Int
-    let minutes: Int
-    let seconds: Int
-
-    private let panelSize: CGFloat = 74
-
-    var body: some View {
-        HStack(spacing: 8) {
-            panel(text: "\(hours)")
-            panel(text: String(format: "%02d", minutes))
-            panel(text: String(format: "%02d", seconds))
-        }
-        .padding(9)
-        .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(Color(white: 0.05))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
-                )
-                .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
-        )
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Time remaining")
-        .accessibilityValue(AccessibilitySupport.spokenCountdown(hours: hours, minutes: minutes, seconds: seconds))
-        .accessibilityAddTraits(.updatesFrequently)
-    }
-
-    private func panel(text: String) -> some View {
-        let lensDiameter = panelSize * 0.68
-        let lensArtDiameter = panelSize * (87.27 / 99.36)
-        let shellShadowHeight = panelSize * (26.69 / 99.36)
-        let shellShadowWidth = panelSize * (99.41 / 99.36)
-        let lensTop = (panelSize - lensArtDiameter) / 2
-        let wheelTop = (panelSize - lensDiameter) / 2
-
-        return ZStack(alignment: .top) {
-            Image("TrafficShellShadow")
-                .resizable()
-                .frame(width: shellShadowWidth, height: shellShadowHeight)
-                .offset(y: panelSize)
-
-            Image("TrafficShellBg")
-                .resizable()
-                .frame(width: panelSize, height: panelSize)
-
-            Image("TrafficShell")
-                .resizable()
-                .frame(width: lensArtDiameter, height: lensArtDiameter)
-                .offset(y: lensTop)
-
-            Text(text)
-                .font(.custom("Special Gothic Expanded One", size: panelSize * 0.4))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .frame(width: lensDiameter, height: lensDiameter)
-                .clipShape(RoundedRectangle(cornerRadius: lensDiameter * 0.18, style: .continuous))
-                .offset(y: wheelTop)
-        }
-        .frame(width: panelSize, height: panelSize)
-    }
-}
 
 // MARK: - End Session confirmation
 
