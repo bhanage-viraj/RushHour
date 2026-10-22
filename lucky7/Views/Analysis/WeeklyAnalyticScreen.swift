@@ -25,24 +25,23 @@ struct WeeklyAnalyticScreen: View {
     @Query private var allSessions: [Session]
     @Query private var allDistractions: [Distraction]
 
-    /// How many weeks away from `weekStart` we're viewing (0 = the initial week).
-    @State private var weekOffset: Int = 0
+    /// A date inside the selected month-clipped week; nil uses the History selection.
+    @State private var selectedSegmentDate: Date?
 
     private let calendar = Calendar.current
 
     /// First day of the week currently being shown.
     private var currentWeekStart: Date {
-        let initialStart = calendar.dateInterval(of: .weekOfYear, for: weekStart)?.start ?? weekStart
-        return calendar.date(byAdding: .day, value: weekOffset * 7, to: initialStart) ?? initialStart
+        let date = selectedSegmentDate ?? weekStart
+        return calendar.dateInterval(of: .weekOfYear, for: date)?.start ?? date
     }
 
     /// The month associated with the displayed segment. The initial value comes
     /// directly from History because a cross-month week has two valid month sides.
     private var currentSegmentMonthStart: Date {
-        if weekOffset == 0, let segmentMonthStart { return segmentMonthStart }
-        return calendar.date(
-            from: calendar.dateComponents([.year, .month], from: currentWeekStart)
-        ) ?? currentWeekStart
+        if selectedSegmentDate == nil, let segmentMonthStart { return segmentMonthStart }
+        let date = selectedSegmentDate ?? weekStart
+        return calendar.dateInterval(of: .month, for: date)?.start ?? date
     }
 
     /// Calendar-week interval clipped to its owning month.
@@ -66,44 +65,58 @@ struct WeeklyAnalyticScreen: View {
     /// September records out of an October segment (and vice versa).
     private var sessions: [Session] {
         guard let interval = currentSegmentInterval else { return [] }
-        return allSessions.filter { interval.contains($0.startTime) }
+        return allSessions.filter { $0.startTime >= interval.start && $0.startTime < interval.end }
     }
 
-    /// Snapshot frames decoded from the displayed week's sessions.
+    /// The recap remains a whole-calendar-week video, even when analytics shows a fragment.
+    private var recapSessions: [Session] {
+        allSessions.filter { $0.startTime >= currentWeekStart && $0.startTime < weekPeriodEnd }
+    }
+
+    private var recapDuration: TimeInterval {
+        recapSessions.reduce(0) { $0 + $1.focusDuration() }
+    }
+
+    private var recapRangeLabel: String {
+        WrapStorage.weekLabel(start: currentWeekStart, end: weekPeriodEnd, calendar: calendar)
+    }
+
     private var videoFrames: [UIImage] {
-        sessions.flatMap { $0.snapshotImages }.compactMap { UIImage(data: $0) }
+        recapSessions.flatMap { $0.snapshotImages }.compactMap { UIImage(data: $0) }
     }
 
-    /// Start of the current calendar week — the forward bound (no future data).
-    private var thisWeekStart: Date {
-        calendar.dateInterval(of: .weekOfYear, for: Date())?.start ?? Date()
+    /// Current month-clipped segment, including the second side of a cross-month week.
+    private var thisSegmentStart: Date {
+        let now = Date()
+        let week = calendar.dateInterval(of: .weekOfYear, for: now)?.start ?? now
+        let month = calendar.dateInterval(of: .month, for: now)?.start ?? now
+        return max(week, month)
     }
 
-    /// Start of the week containing the earliest recorded session — the backward
-    /// bound. Nil only when there are no sessions at all.
-    private var earliestWeekStart: Date? {
-        guard let earliest = allSessions.map(\.startTime).min() else { return nil }
-        return calendar.dateInterval(of: .weekOfYear, for: earliest)?.start
+    private var earliestSegmentStart: Date? {
+        guard let earliest = allSessions.map(\.startTime).min(),
+              let week = calendar.dateInterval(of: .weekOfYear, for: earliest),
+              let month = calendar.dateInterval(of: .month, for: earliest) else { return nil }
+        return max(week.start, month.start)
     }
 
-    /// True when the displayed week is the current week (forward chevron off).
     private var isAtCurrentWeek: Bool {
-        currentWeekStart >= thisWeekStart
+        (currentSegmentInterval?.start ?? currentWeekStart) >= thisSegmentStart
     }
 
-    /// True while there's an earlier week with data to step back to.
     private var canGoBack: Bool {
-        guard let earliest = earliestWeekStart else { return false }
-        return currentWeekStart > earliest
+        guard let earliest = earliestSegmentStart else { return false }
+        return (currentSegmentInterval?.start ?? currentWeekStart) > earliest
     }
 
-    private func changeWeek(by weeks: Int) {
-        let newOffset = weekOffset + weeks
-        let initialStart = calendar.dateInterval(of: .weekOfYear, for: weekStart)?.start ?? weekStart
-        guard let candidate = calendar.date(byAdding: .day, value: newOffset * 7, to: initialStart) else { return }
-        guard candidate <= thisWeekStart else { return }                 // no future weeks
-        if let earliest = earliestWeekStart, candidate < earliest { return } // no weeks before first session
-        withAnimation(.easeInOut(duration: 0.2)) { weekOffset = newOffset }
+    private func changeWeek(by direction: Int) {
+        guard let interval = currentSegmentInterval else { return }
+        let candidate = direction < 0
+            ? calendar.date(byAdding: .day, value: -1, to: interval.start)
+            : interval.end
+        guard let candidate, candidate <= thisSegmentStart else { return }
+        if let earliest = earliestSegmentStart, candidate < earliest { return }
+        withAnimation(.easeInOut(duration: 0.2)) { selectedSegmentDate = candidate }
     }
 
     private var displayFrame: [UIImage] {
@@ -146,7 +159,17 @@ struct WeeklyAnalyticScreen: View {
     }
 
     private var totalFocus: TimeInterval {
-        max(weekTotalDuration - totalDistracted, 0)
+        focusDuration(for: sessions)
+    }
+
+    private func focusDuration(for selectedSessions: [Session]) -> TimeInterval {
+        let bySession = Dictionary(grouping: weekDistractions, by: \.sessionId)
+        return selectedSessions.reduce(0) { total, session in
+            let distracted = bySession[session.id, default: []].reduce(0) {
+                $0 + $1.duration(overlapping: session)
+            }
+            return total + session.focusDuration(distractedDuration: distracted)
+        }
     }
 
     private var avgSessionLength: TimeInterval {
@@ -204,10 +227,10 @@ struct WeeklyAnalyticScreen: View {
             let distracted = weekDistractions
                 .filter { dayIDs.contains($0.sessionId) }
                 .reduce(0) { $0 + distractedDuration($1) }
-            let total = daySessions.reduce(0) { $0 + $1.actualDuration }
+            let focus = focusDuration(for: daySessions)
             return DayStat(
                 date: day,
-                focusMinutes: max(total - distracted, 0) / 60,
+                focusMinutes: focus / 60,
                 distractedMinutes: distracted / 60,
                 hasSessions: !daySessions.isEmpty
             )
@@ -258,7 +281,7 @@ struct WeeklyAnalyticScreen: View {
             if let token = decodeToken(distraction.tokenData) {
                 var entry = byToken[token] ?? (resolvedName(distraction), 0)
                 entry.duration += duration
-                if entry.name == "App" { entry.name = resolvedName(distraction) }
+                if entry.name == "Blocked App" { entry.name = resolvedName(distraction) }
                 byToken[token] = entry
             } else {
                 byName[resolvedName(distraction), default: 0] += duration
@@ -284,8 +307,7 @@ struct WeeklyAnalyticScreen: View {
     }
 
     private func resolvedName(_ distraction: Distraction) -> String {
-        if let name = distraction.appDisplayName, !name.isEmpty { return name }
-        return distraction.appOpened.isEmpty ? "App" : distraction.appOpened
+        distraction.resolvedAppName ?? "Blocked App"
     }
 
     /// Real app icon from the Screen Time token, with a neutral fallback for
@@ -302,16 +324,6 @@ struct WeeklyAnalyticScreen: View {
                 .font(.system(size: 30))
                 .foregroundColor(.gray)
                 .frame(width: 36, height: 36)
-        }
-    }
-
-    /// Real app name from the token, falling back to the stored display name.
-    @ViewBuilder
-    private func appName(for app: DistractingApp) -> some View {
-        if let token = app.token {
-            Label(token).labelStyle(.titleOnly)
-        } else {
-            Text(app.name)
         }
     }
 
@@ -464,9 +476,9 @@ struct WeeklyAnalyticScreen: View {
                                 kind: .weekly(
                                     periodKey: weekPeriodKey,
                                     periodEnd: weekPeriodEnd,
-                                    title: "Weekly Rewind",
-                                    periodLabel: weekRangeLabel,
-                                    duration: weekTotalDuration
+                                    title: "Full-week Rewind",
+                                    periodLabel: recapRangeLabel,
+                                    duration: recapDuration
                                 ),
                                 videoFrames: videoFrames
                             )) {
@@ -483,9 +495,18 @@ struct WeeklyAnalyticScreen: View {
                                         .zIndex(1)
                                         .frame(width: 48, height: 48)
                                         .background(Circle().fill(Color.black))
+                                        .overlay(alignment: .bottom) {
+                                            Text("Full-week recap")
+                                                .font(.system(size: 11, weight: .semibold))
+                                                .foregroundStyle(.black)
+                                                .fixedSize()
+                                                .offset(y: 18)
+                                        }
                                         .offset(y: -32)
                                 }
                             }
+                            .accessibilityLabel("Play full-week recap")
+                            .accessibilityHint(recapRangeLabel)
                         }
                         
                         PatternBorderedCard(edges: [], cornerRadius: 24) {
@@ -565,7 +586,7 @@ struct WeeklyAnalyticScreen: View {
 
                                                     appIcon(for: app)
 
-                                                    appName(for: app)
+                                                    Text(app.name)
                                                         .font(.custom("Special Gothic Expanded One", size: 15))
                                                         .foregroundColor(.black)
                                                         .lineLimit(1)
@@ -633,7 +654,7 @@ private struct DayStat {
     let weekStart = calendar.dateInterval(of: .weekOfYear, for: Date())?.start ?? Date()
 
     let container = try! ModelContainer(
-        for: Session.self, Distraction.self,
+        for: Session.self, Distraction.self, PeriodWrap.self,
         configurations: ModelConfiguration(isStoredInMemoryOnly: true)
     )
     // Seed two weeks so the chevrons have somewhere to navigate.

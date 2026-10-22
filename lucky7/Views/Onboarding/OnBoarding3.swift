@@ -23,9 +23,10 @@ struct OnBoarding3: View {
         OnboardingScreenTemplate(
             step: 3,
             isDisabled: isRequestingAuth,
-            onContinue: continueTapped
-        ) {
-            mainContent
+            onContinue: continueTapped,
+            onBack: { if !path.isEmpty { path.removeLast() } }
+        ) { scale in
+            mainContent(scale: scale)
         }
         .navigationBarBackButtonHidden()
         .alert(
@@ -46,28 +47,71 @@ struct OnBoarding3: View {
         }
     }
 
-    private var mainContent: some View {
-        VStack(spacing: 0) {
-            VStack(spacing: 0) {
-                Text("Lock Out Your Distractions")
-                    .font(.custom("Special Gothic Expanded One", size: 32))
-                Color.clear
-                    .frame(height: 16)
-                Text("Screen Time access lets Rush Hour block the apps you choose during focus sessions.")
-                    .font(.system(size: 17))
-                    .multilineTextAlignment(.center)
+    private func mainContent(scale: CGFloat) -> some View {
+        VStack(spacing: 24 * scale) {
+            VStack(spacing: 16 * scale) {
+                OnboardingTitle(text: "Lock Out Your\nDistractions", scale: scale)
+
+                Text("We'll remind you to stay focused\nwhen it matters most.")
+                    .font(.system(size: 17 * scale))
+                    .foregroundStyle(Color(white: 38 / 255).opacity(0.8))
+                    .lineSpacing(2 * scale)
+                    .frame(height: 44 * scale)
             }
-            .foregroundStyle(.black)
             .multilineTextAlignment(.center)
             .fixedSize(horizontal: false, vertical: true)
-            Spacer()
-            Image(.blockedAppsMainScreen)
-                .resizable()
-                .scaledToFit()
-                .frame(maxHeight: .infinity, alignment: .center)
-                .layoutPriority(1)
-                .padding()
-            Spacer()
+
+            ZStack(alignment: .topLeading) {
+                Image(.blockedAppsMainScreen)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 277.47 * scale, height: 318.56 * scale)
+                    .clipShape(RoundedRectangle(cornerRadius: 26.188 * scale))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 26.188 * scale)
+                            .strokeBorder(.black, lineWidth: 0.671 * scale)
+                    }
+                    .shadow(color: .black, radius: 0, x: 0, y: 2.686 * scale)
+                    .offset(x: -0.65 * scale)
+
+                Image(systemName: "lock.fill")
+                    .resizable()
+                    .font(.system(size: 27.342 * scale, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.9))
+                    .frame(width: 18.8 * scale, height: 26.7 * scale)
+                    .rotationEffect(.degrees(9.1))
+                    .offset(y: -0.48 * scale)
+                    .frame(width: 79.24 * scale, height: 79.13 * scale)
+                    .background {
+                        Canvas { context, size in
+                            let dot = context.resolve(Image("OnboardingLockDot"))
+                            let diameter = 9 * 0.06564462184906006 * scale
+                            // Figma expresses the pattern gap relative to the dot size.
+                            let spacing = diameter * (1 + 0.97)
+                            let columns = Int(ceil(size.width / spacing / 2))
+                            let rows = Int(ceil(size.height / spacing / 2))
+                            for row in -rows...rows {
+                                for column in -columns...columns {
+                                    context.draw(dot, in: CGRect(
+                                        x: size.width / 2 + CGFloat(column) * spacing - diameter / 2,
+                                        y: size.height / 2 + CGFloat(row) * spacing - diameter / 2,
+                                        width: diameter, height: diameter
+                                    ))
+                                }
+                            }
+                        }
+                        .opacity(0.2)
+                        .background(Color(red: 25 / 255, green: 135 / 255, blue: 237 / 255))
+                        .clipShape(Circle())
+                    }
+                    .overlay { Circle().strokeBorder(.black, lineWidth: 0.525 * scale) }
+                    .compositingGroup()
+                    .shadow(color: .black, radius: 0, x: 0, y: 2.293 * scale)
+                    .position(x: 262.77 * scale, y: 296.18 * scale)
+            }
+            .frame(width: 302 * scale, height: 348 * scale)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityHidden(true)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
