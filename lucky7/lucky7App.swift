@@ -16,6 +16,7 @@ struct lucky7App: App {
     @StateObject private var focusController = FocusViewModel()
     @StateObject private var sessionTimer = SessionTimerViewModel()
     @StateObject private var sessionRecording = SessionRecordingViewModel()
+    @ObservedObject private var pendingSiriSession = PendingSiriSession.shared
 
     private let container: ModelContainer = {
         do {
@@ -31,6 +32,7 @@ struct lucky7App: App {
                 .environmentObject(focusController)
                 .environmentObject(sessionTimer)
                 .environmentObject(sessionRecording)
+                .environmentObject(pendingSiriSession)
                 .task {
                     // Roll completed weeks/months into recap videos and prune old slices.
                     await WrapRollupService.rollUpIfNeeded(context: container.mainContext)

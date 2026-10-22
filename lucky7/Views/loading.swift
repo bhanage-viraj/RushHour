@@ -8,11 +8,14 @@ import Combine
 
 struct Loading: View {
     @AppStorage("didShowAppBlockOnboarding") private var didShowOnboarding = false
+    @EnvironmentObject private var pendingSiriSession: PendingSiriSession
     @State private var pulse = false
     @State private var showHome = false
     @State private var selectedTab = 0
     @StateObject private var tabBarVisibility = TabBarVisibility()
     @State private var pendingRecoverySession: PendingRecoverySession?
+    @State private var recoveryCoverActive = SessionEndRecovery.pendingSessionID != nil
+    @State private var historySettingsCoverActive = false
 
     private struct PendingRecoverySession: Identifiable {
         let id: UUID
@@ -46,12 +49,15 @@ struct Loading: View {
                 ZStack(alignment: .bottom) {
                     // Both screens stay alive so each keeps its own navigation
                     // stack and scroll state; only the selected one is shown.
-                    HomePage(isActiveTab: selectedTab == 0)
+                    HomePage(
+                        isActiveTab: selectedTab == 0,
+                        isParentCoverPresented: recoveryCoverActive || historySettingsCoverActive
+                    )
                         .opacity(selectedTab == 0 ? 1 : 0)
                         .allowsHitTesting(selectedTab == 0)
                         .zIndex(selectedTab == 0 ? 1 : 0)
 
-                    MonitorScreen()
+                    MonitorScreen(onSettingsPresentationChange: { historySettingsCoverActive = $0 })
                         .opacity(selectedTab == 1 ? 1 : 0)
                         .allowsHitTesting(selectedTab == 1)
                         .zIndex(selectedTab == 1 ? 1 : 0)
@@ -67,11 +73,23 @@ struct Loading: View {
                 .onAppear {
                     UIApplication.shared.enableTapToDismissKeyboard()
                     loadPendingRecoveryIfNeeded()
+                    if pendingSiriSession.hasPending {
+                        selectedTab = 0
+                    }
+                }
+                .onChange(of: pendingSiriSession.totalSeconds) { _, seconds in
+                    // Siri start while already on Home — jump to the Rush Hour tab.
+                    if seconds != nil {
+                        withAnimation(.easeInOut(duration: 0.2)) { selectedTab = 0 }
+                    }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .returnToMySessionsTab)) { _ in
                     withAnimation(.easeInOut(duration: 0.2)) { selectedTab = 1 }
                 }
-                .fullScreenCover(item: $pendingRecoverySession) { recovery in
+                .fullScreenCover(item: $pendingRecoverySession, onDismiss: {
+                    recoveryCoverActive = false
+                    if pendingSiriSession.hasPending { selectedTab = 0 }
+                }) { recovery in
                     SessionDetails(
                         sessionId: recovery.id,
                         onSave: {
@@ -134,12 +152,34 @@ struct Loading: View {
                     UIApplication.shared.enableTapToDismissKeyboard()
                 }
 
+                // Siri / Shortcuts: skip the splash and go straight to Home so recording
+                // can start without waiting on the 3s intro.
+                if pendingSiriSession.hasPending {
+                    showHome = true
+                    selectedTab = 0
+                    // Don't start behind onboarding — drop the request until setup is done.
+                    if !didShowOnboarding {
+                        pendingSiriSession.clear()
+                    }
+                    loadPendingRecoveryIfNeeded()
+                    return
+                }
+
                 // Navigate after 3 sec
                 DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                     withAnimation(.easeInOut) {
                         showHome = true
                     }
                     loadPendingRecoveryIfNeeded()
+                }
+            }
+            .onChange(of: pendingSiriSession.totalSeconds) { _, seconds in
+                // Intent fired while still on splash (or after splash timer started).
+                guard seconds != nil, !showHome else { return }
+                showHome = true
+                selectedTab = 0
+                if !didShowOnboarding {
+                    pendingSiriSession.clear()
                 }
             }
         }
@@ -149,6 +189,7 @@ struct Loading: View {
         guard didShowOnboarding, pendingRecoverySession == nil else { return }
         guard let id = SessionEndRecovery.pendingSessionID else { return }
         RecordingDiagnostics.log("Loading present pending recovery session=\(id)")
+        recoveryCoverActive = true
         pendingRecoverySession = PendingRecoverySession(id: id)
     }
 }
@@ -241,4 +282,8 @@ private struct HidesFloatingTabBar: ViewModifier {
 
 #Preview {
     Loading()
+        .environmentObject(FocusViewModel())
+        .environmentObject(SessionTimerViewModel())
+        .environmentObject(SessionRecordingViewModel())
+        .environmentObject(PendingSiriSession.shared)
 }
