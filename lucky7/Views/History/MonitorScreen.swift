@@ -14,54 +14,51 @@ struct MonitorScreen: View {
     @State private var showSettings = false
     @State private var weeklyNotReady = false
 
-    /// Sessions grouped by calendar month (newest first), each month split into real
-    /// 7-day weeks. A week that straddles a month boundary is kept whole and filed
-    /// under the month most of its sessions fall in, so there's no stray fragment week.
+    /// Sessions grouped by their actual calendar month (newest first), then by their
+    /// calendar week within that month. Cross-month weeks are split at the month
+    /// boundary so a September session can never be counted in October.
     private var monthGroups: [MonthGroup] {
         let calendar = Calendar.current
         let now = Date()
         let currentMonthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: now))
         let currentWeekStart = calendar.dateInterval(of: .weekOfYear, for: now)?.start
 
-        // 1. Group sessions into real 7-day calendar weeks.
-        let byWeekStart = Dictionary(grouping: sessions) { session -> Date in
-            calendar.dateInterval(of: .weekOfYear, for: session.startTime)?.start ?? session.startTime
+        // Month first is important: grouping by week first lets a week spanning two
+        // months carry records from the previous month into the next one.
+        let sessionsByMonth = Dictionary(grouping: sessions) { session -> Date in
+            calendar.date(
+                from: calendar.dateComponents([.year, .month], from: session.startTime)
+            ) ?? session.startTime
         }
 
-        // 2. For each week, choose the month most of its sessions land in (ties -> later month).
-        let pendingWeeks = byWeekStart.map { (weekStart, weekSessions) -> (weekStart: Date, monthStart: Date, sessions: [Session], total: TimeInterval, isCurrent: Bool) in
-            let sorted = weekSessions.sorted { $0.startTime > $1.startTime }
-            let total = sorted.reduce(0) { $0 + $1.actualDuration }
-            let byMonth = Dictionary(grouping: sorted) { session in
-                calendar.date(from: calendar.dateComponents([.year, .month], from: session.startTime)) ?? session.startTime
+        return sessionsByMonth.keys.sorted(by: >).map { monthStart in
+            let monthSessions = sessionsByMonth[monthStart] ?? []
+            let byWeekStart = Dictionary(grouping: monthSessions) { session -> Date in
+                calendar.dateInterval(of: .weekOfYear, for: session.startTime)?.start
+                    ?? session.startTime
             }
-            let monthStart = byMonth.max {
-                $0.value.count != $1.value.count ? $0.value.count < $1.value.count : $0.key < $1.key
-            }?.key ?? weekStart
-            return (weekStart, monthStart, sorted, total, weekStart == currentWeekStart)
-        }
+            let weeks: [WeekGroup] = byWeekStart.map { weekStart, weekSessions in
+                let sorted = weekSessions.sorted { $0.startTime > $1.startTime }
+                let representativeDate = sorted.first?.startTime ?? weekStart
+                let weekNumber = calendar.component(.weekOfMonth, from: representativeDate)
 
-        // 3. Bucket weeks by month; number them oldest-first, display newest-first.
-        let byMonth = Dictionary(grouping: pendingWeeks) { $0.monthStart }
-
-        return byMonth.keys.sorted(by: >).map { monthStart in
-            let weeksAsc = (byMonth[monthStart] ?? []).sorted { $0.weekStart < $1.weekStart }
-            let weeks: [WeekGroup] = weeksAsc.enumerated()
-                .map { index, week in
-                    WeekGroup(
-                        id: week.weekStart,
-                        number: index + 1,
-                        sessions: week.sessions,
-                        totalDuration: week.total,
-                        isCurrent: week.isCurrent
-                    )
-                }
+                return WeekGroup(
+                    // Use the first date belonging to this month as the identity. This
+                    // makes both sides of a cross-month week distinct segments.
+                    id: max(weekStart, monthStart),
+                    monthStart: monthStart,
+                    number: weekNumber,
+                    sessions: sorted,
+                    totalDuration: sorted.reduce(0) { $0 + $1.actualDuration },
+                    isCurrent: monthStart == currentMonthStart && weekStart == currentWeekStart
+                )
+            }
                 .sorted { $0.id > $1.id }
-            let monthTotal = weeksAsc.reduce(0) { $0 + $1.total }
+
             return MonthGroup(
                 id: monthStart,
                 weeks: weeks,
-                totalDuration: monthTotal,
+                totalDuration: monthSessions.reduce(0) { $0 + $1.actualDuration },
                 isCurrentMonth: monthStart == currentMonthStart
             )
         }
@@ -249,8 +246,9 @@ struct MonthGroup: Identifiable {
 }
 
 struct WeekGroup: Identifiable {
-    let id: Date            // start of the week
-    let number: Int         // sequential position within its month (1 = earliest)
+    let id: Date            // start of this week segment, clamped to its month
+    let monthStart: Date    // used to keep analytics inside the displayed month
+    let number: Int         // actual Calendar week-of-month, including empty weeks
     let sessions: [Session]
     let totalDuration: TimeInterval
     let isCurrent: Bool     // contains today — starts expanded
@@ -310,7 +308,10 @@ struct WeekCard: View {
                         .buttonStyle(.plain)
                 } else {
                     NavigationLink {
-                        WeeklyAnalyticScreen(weekStart: week.id)
+                        WeeklyAnalyticScreen(
+                            weekStart: week.id,
+                            segmentMonthStart: week.monthStart
+                        )
                     } label: { weekPill }
                     .buttonStyle(.plain)
                 }
