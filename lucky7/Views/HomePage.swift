@@ -1,9 +1,10 @@
 import SwiftUI
 import SwiftData
 import AVFoundation
+import UIKit
 
 // MARK: - Home Page
-//
+//H
 // New home screen: a live camera "card" with the traffic-light duration picker.
 // The record button is gray until a duration is set, then turns red — tapping it
 // does NOT push a new screen. Instead the *same* camera frame enlarges to fill the
@@ -790,65 +791,170 @@ private struct HomeTrafficTimer: View {
 
 // MARK: - Single number dial
 
-
 private struct HomeTimeDial: View {
     @Binding var selected: Int
     let range: ClosedRange<Int>
     let size: CGSize
     let unit: AccessibilitySupport.TimeUnit
 
-    @State private var scrollID: Int?
+    var body: some View {
+        HomeWheelPicker(selected: $selected, range: range, size: size)
+            .frame(width: size.width, height: size.height)
+            // The highlight stays fixed over the middle picking row, so a number
+            // brightens immediately when it scrolls into the selected area.
+            .mask {
+                LinearGradient(
+                    stops: [
+                        .init(color: .white.opacity(0.35), location: 0),
+                        .init(color: .white.opacity(0.4), location: 0.32),
+                        .init(color: .white, location: 0.34),
+                        .init(color: .white, location: 0.66),
+                        .init(color: .white.opacity(0.4), location: 0.68),
+                        .init(color: .white.opacity(0.35), location: 1)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            }
+            .contentShape(Rectangle())
+            .clipped()
+            .clipShape(RoundedRectangle(cornerRadius: 13 * size.width / 92, style: .continuous))
+            .sensoryFeedback(.selection, trigger: selected)
+            .timeDialAccessibility(selected: $selected, range: range, unit: unit)
+    }
+}
+
+/// UIKit's wheel picker owns both the highlighted row and the selection callback,
+/// so the visible selection and the SwiftUI binding cannot drift apart.
+private struct HomeWheelPicker: UIViewRepresentable {
+    @Binding var selected: Int
+    let range: ClosedRange<Int>
+    let size: CGSize
 
     private var values: [Int] { Array(range) }
 
-    private func clamped(_ value: Int) -> Int {
-        min(max(value, range.lowerBound), range.upperBound)
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
     }
 
-    var body: some View {
-        let row = size.height / 2
-        let centerPadding = max((size.height - row) / 2, 0)
+    func makeUIView(context: Context) -> HomeUIPickerView {
+        let picker = HomeUIPickerView()
+        picker.backgroundColor = .clear
+        picker.clipsToBounds = true
+        picker.dataSource = context.coordinator
+        picker.delegate = context.coordinator
+        picker.selectRow(index(for: selected), inComponent: 0, animated: false)
+        return picker
+    }
 
-        ScrollView(.vertical, showsIndicators: false) {
-            LazyVStack(spacing: 0) {
-                ForEach(values, id: \.self) { number in
-                    let isSelected = number == selected
-                    Text("\(number)")
-                        .font(.custom("Special Gothic Expanded One", size: 36 * size.width / 92))
-                        .foregroundStyle(isSelected ? Color.white : Color.white.opacity(0.4))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                        .fixedSize(horizontal: true, vertical: true)
-                        .animation(.smooth(duration: 0.15), value: selected)
-                        .frame(width: size.width, height: row)
-                        .id(number)
-                }
+    func updateUIView(_ picker: HomeUIPickerView, context: Context) {
+        let clampedSelection = min(max(selected, range.lowerBound), range.upperBound)
+        let selectionChanged = context.coordinator.lastAppliedSelection != clampedSelection
+        let sizeChanged = context.coordinator.lastSize != size
+        context.coordinator.parent = self
+
+        // Only drive UIKit when SwiftUI changed the value externally. Comparing
+        // against UIPickerView's live row while the wheel is moving can pull it
+        // back to the old value before `didSelectRow` gets a chance to commit.
+        if selectionChanged {
+            picker.selectRow(index(for: clampedSelection), inComponent: 0, animated: false)
+            context.coordinator.lastAppliedSelection = clampedSelection
+        }
+        if selectionChanged || sizeChanged {
+            context.coordinator.lastSize = size
+            picker.reloadAllComponents()
+        }
+    }
+
+    func sizeThatFits(
+        _ proposal: ProposedViewSize,
+        uiView: HomeUIPickerView,
+        context: Context
+    ) -> CGSize? {
+        size
+    }
+
+    private func index(for value: Int) -> Int {
+        min(max(value, range.lowerBound), range.upperBound) - range.lowerBound
+    }
+
+    final class Coordinator: NSObject, UIPickerViewDataSource, UIPickerViewDelegate {
+        var parent: HomeWheelPicker
+        var lastAppliedSelection: Int
+        var lastSize: CGSize
+
+        init(parent: HomeWheelPicker) {
+            self.parent = parent
+            self.lastAppliedSelection = min(
+                max(parent.selected, parent.range.lowerBound),
+                parent.range.upperBound
+            )
+            self.lastSize = parent.size
+        }
+
+        func numberOfComponents(in pickerView: UIPickerView) -> Int { 1 }
+
+        func pickerView(_ pickerView: UIPickerView, numberOfRowsInComponent component: Int) -> Int {
+            parent.values.count
+        }
+
+        func pickerView(_ pickerView: UIPickerView, rowHeightForComponent component: Int) -> CGFloat {
+            // Three equal interaction rows: previous, selected, and next.
+            parent.size.height / 3
+        }
+
+        func pickerView(_ pickerView: UIPickerView, widthForComponent component: Int) -> CGFloat {
+            parent.size.width
+        }
+
+        func pickerView(
+            _ pickerView: UIPickerView,
+            viewForRow row: Int,
+            forComponent component: Int,
+            reusing view: UIView?
+        ) -> UIView {
+            let label = (view as? UILabel) ?? UILabel()
+
+            label.text = "\(parent.values[row])"
+            label.textAlignment = .center
+            label.textColor = .white
+            let fontSize = 42 * parent.size.width / 92
+            label.font = UIFont(
+                name: "Special Gothic Expanded One",
+                size: fontSize
+            ) ?? .systemFont(ofSize: fontSize, weight: .black)
+            label.adjustsFontSizeToFitWidth = true
+            label.minimumScaleFactor = 0.7
+            return label
+        }
+
+        func pickerView(_ pickerView: UIPickerView, didSelectRow row: Int, inComponent component: Int) {
+            let value = parent.values[row]
+            lastAppliedSelection = value
+            if parent.selected != value {
+                parent.selected = value
             }
-            .scrollTargetLayout()
-            .padding(.vertical, centerPadding)
+            pickerView.reloadAllComponents()
         }
-        .frame(width: size.width, height: size.height)
-        .scrollTargetBehavior(.viewAligned)
-        .scrollPosition(id: $scrollID, anchor: .center)
-        .scrollClipDisabled()
-        .clipped()
-        .clipShape(RoundedRectangle(cornerRadius: 13 * size.width / 92, style: .continuous))
-        .onAppear { if scrollID == nil { scrollID = clamped(selected) } }
-        .onChange(of: scrollID) { _, new in
-            guard let new else { return }
-            let value = clamped(new)
-            if value != selected { selected = value }
-        }
-        .onChange(of: selected) { _, new in
-            let value = clamped(new)
-            if value != new {
-                selected = value
-            } else if scrollID != value {
-                scrollID = value
+    }
+}
+
+/// Removes UIPickerView's system selection plate and keeps UIKit's hit-testing
+/// bounds identical to the visible black dial bounds supplied by SwiftUI.
+private final class HomeUIPickerView: UIPickerView {
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        clipsToBounds = true
+        clearSystemBackgrounds(in: self)
+    }
+
+    private func clearSystemBackgrounds(in view: UIView) {
+        for subview in view.subviews {
+            if !(subview is UILabel) {
+                subview.backgroundColor = .clear
             }
+            clearSystemBackgrounds(in: subview)
         }
-        .sensoryFeedback(.selection, trigger: selected)
-        .timeDialAccessibility(selected: $selected, range: range, unit: unit)
     }
 }
 
