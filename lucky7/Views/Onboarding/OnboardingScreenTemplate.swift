@@ -6,12 +6,13 @@
 import SwiftUI
 
 struct OnboardingScreenTemplate<Content: View>: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let step: Int
     let buttonText: String?
     var isDisabled: Bool?
     var onContinue: () -> Void
     var onBack: (() -> Void)?
-    @ViewBuilder private var content: () -> Content
+    @ViewBuilder private var content: (CGFloat) -> Content
 
     init(
         step: Int,
@@ -19,7 +20,7 @@ struct OnboardingScreenTemplate<Content: View>: View {
         isDisabled: Bool? = false,
         onContinue: @escaping () -> Void = {},
         onBack: (() -> Void)? = nil,
-        @ViewBuilder content: @escaping () -> Content
+        @ViewBuilder content: @escaping (CGFloat) -> Content
     ) {
         self.step = step
         self.buttonText = buttonText
@@ -30,109 +31,138 @@ struct OnboardingScreenTemplate<Content: View>: View {
     }
     
     var body: some View {
-        VStack(spacing: 0) {
-            OnboardingProgressHeader(step: step, onBack: onBack)
-                .padding(.horizontal, 24)
-                .padding(.top, 16)
+        GeometryReader { geometry in
+            let fullHeight = geometry.size.height + geometry.safeAreaInsets.top + geometry.safeAreaInsets.bottom
+            let scale = min(geometry.size.width / 402, fullHeight / 874)
 
-            ScrollView {
-                content()
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 28)
-                    .padding(.top, 36)
-                    .padding(.bottom, 28)
-                    .background {
-                        // The content determines the card height, even when it
-                        // is taller than the iPhone compatibility window.
-                        Image("OnboardingContainer")
-                            .resizable(capInsets: EdgeInsets(top: 32, leading: 32, bottom: 32, trailing: 32))
-                            .accessibilityHidden(true)
+            VStack(spacing: 0) {
+                OnboardingProgressHeader(step: step, onBack: onBack, scale: scale)
+                    .frame(height: 32 * scale)
+                    .padding(.bottom, (step == 1 ? 10 : 13) * scale)
+
+                if dynamicTypeSize > .large {
+                    ScrollView {
+                        card(scale: scale)
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 20)
-            }
-            .scrollBounceBehavior(.basedOnSize)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-
-            Button(action: onContinue) {
-                Text(buttonText ?? "CONTINUE")
-                    .font(.system(size: 16, weight: .heavy))
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 20)
-                    .background(Capsule().fill(Color.black))
-            }
-            .disabled(isDisabled ?? false)
-            .opacity(isDisabled ?? false ? 0.5 : 1)
-            .accessibilityLabel(buttonText ?? "Continue")
-            .accessibilityHint("Step \(step) of \(OnboardingProgressHeader.totalSteps)")
-            .accessibilityInputLabels(["continue", "next"])
-            .padding(.horizontal, 20)
-            .padding(.top, 12)
-            .padding(.bottom, 20)
-            .background(Color("CanvasBlue").ignoresSafeArea(edges: .bottom))
-        }
-        .background {
-            Color("CanvasBlue")
-                .overlay(alignment: .bottom) {
-                    Image("PatternBackground")
-                        .resizable()
-                        .scaledToFill()
-                        .frame(height: 250)
-                        .clipped()
-                        .allowsHitTesting(false)
+                } else {
+                    card(scale: scale)
                 }
-                .ignoresSafeArea()
-                .accessibilityHidden(true)
+
+                Button(action: onContinue) {
+                    Text(buttonText ?? "CONTINUE")
+                        .font(.custom("Special Gothic Expanded One", size: 14 * scale))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: max(44, 56 * scale))
+                        .background(Color(white: 52 / 255), in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(isDisabled ?? false)
+                .opacity(isDisabled ?? false ? 0.5 : 1)
+                .accessibilityLabel(buttonText ?? "Continue")
+                .accessibilityHint("Step \(step) of \(OnboardingProgressHeader.totalSteps)")
+                .accessibilityInputLabels(["continue", "next"])
+                .padding(.top, 14 * scale)
+            }
+            .padding(.horizontal, 24 * scale)
+            .padding(.top, 61 * scale - geometry.safeAreaInsets.top)
+            .padding(.bottom, dynamicTypeSize > .large ? 14 * scale : 0)
         }
+        .background { OnboardingBackground() }
+        .preferredColorScheme(.dark)
         .toolbar(.hidden, for: .navigationBar)
         .accessibilityElement(children: .contain)
     }
 
-
+    private func card(scale: CGFloat) -> some View {
+        PatternBorderedCard(edges: [.top], cornerRadius: 24 * scale, stripHeight: 10 * scale) {
+            content(scale)
+                .fixedSize(horizontal: false, vertical: dynamicTypeSize > .large)
+                .padding(.horizontal, 23 * scale)
+                .padding(.top, 48 * scale)
+                .padding(.bottom, (step == 3 ? 24 : step == 2 ? 33 : 48) * scale)
+                .frame(minHeight: 660 * scale, maxHeight: dynamicTypeSize > .large ? nil : 660 * scale)
+        }
+    }
 }
 
-/// Shared by the explanation screens and the final app-selection step.
-struct OnboardingProgressHeader: View {
-    static let totalSteps = 4
-    let step: Int
-    var onBack: (() -> Void)?
-    @State private var animated = false
+struct OnboardingTitle: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    let text: String
+    let scale: CGFloat
 
     var body: some View {
-        HStack(spacing: 12) {
+        Group {
+            if dynamicTypeSize > .large {
+                Text(text)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                // The font's default line height is taller than Figma's 34-point title lines.
+                VStack(spacing: 0) {
+                    ForEach(text.components(separatedBy: "\n"), id: \.self) { line in
+                        Text(line)
+                            .frame(height: 34 * scale)
+                    }
+                }
+            }
+        }
+        .multilineTextAlignment(.center)
+        .font(.custom("Special Gothic Expanded One", size: 28 * scale))
+        .foregroundStyle(.black)
+    }
+}
+
+struct OnboardingBackground: View {
+    var body: some View {
+        GeometryReader { geometry in
+            let scale = min(geometry.size.width / 402, geometry.size.height / 874)
+            Color(red: 0, green: 96 / 255, blue: 190 / 255)
+                .overlay(alignment: .bottom) {
+                    Image("AppSelectionPattern")
+                        .resizable()
+                        .frame(width: 1276 * scale, height: 1054 * scale)
+                        .offset(x: 2 * scale)
+                        .frame(width: geometry.size.width, height: 463 * scale, alignment: .top)
+                        .clipped()
+                }
+        }
+        .ignoresSafeArea()
+        .accessibilityHidden(true)
+    }
+}
+
+struct OnboardingProgressHeader: View {
+    static let totalSteps = 3
+    let step: Int
+    var onBack: (() -> Void)?
+    var scale: CGFloat = 1
+
+    var body: some View {
+        HStack(spacing: 8 * scale) {
             if let onBack {
                 Button(action: onBack) {
                     Image(systemName: "chevron.left")
-                        .font(.system(size: 22, weight: .medium))
+                        .font(.system(size: 16 * scale, weight: .bold))
                         .foregroundStyle(.white)
-                        .frame(minWidth: 44, minHeight: 44)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .frame(width: 32 * scale, height: 32 * scale)
                 .accessibilityLabel("Back")
                 .accessibilityInputLabels(["back", "previous"])
             }
 
-            HStack(spacing: 8) {
+            HStack(spacing: 8 * scale) {
                 ForEach(1...Self.totalSteps, id: \.self) { index in
                     Capsule()
-                        .fill(Color.white.opacity(0.35))
-                        .overlay {
-                            Capsule()
-                                .fill(.white)
-                                .scaleEffect(x: index < step || (index == step && animated) ? 1 : 0,
-                                             y: 1, anchor: .leading)
-                        }
-                        .frame(height: 5)
+                        .fill(Color.white.opacity(index <= step ? 1 : 0.3))
+                        .frame(height: 4 * scale)
                 }
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Onboarding progress")
             .accessibilityValue("Step \(step) of \(Self.totalSteps)")
-            .onAppear {
-                withAnimation(.easeInOut(duration: 1.3)) { animated = true }
-            }
         }
     }
 }
@@ -151,7 +181,7 @@ extension OnboardingScreenTemplate where Content == EmptyView {
             isDisabled: isDisabled,
             onContinue: onContinue,
             onBack: onBack,
-            content: { EmptyView() }
+            content: { _ in EmptyView() }
         )
     }
 }

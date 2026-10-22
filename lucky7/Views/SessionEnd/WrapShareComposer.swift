@@ -30,50 +30,39 @@ struct WrapShareComposer: View {
         )
     }
 
+    private var isLandscapeWrap: Bool {
+        guard let image = viewModel.posterImage else { return false }
+        return image.size.width > image.size.height
+    }
+
     var body: some View {
-        GeometryReader { proxy in
-            ZStack {
-                Color.wrappedShareBlue
-                    .ignoresSafeArea()
-
-                Image("PatternBackground")
-                    .resizable()
-                    .scaledToFill()
-                    .ignoresSafeArea()
-
-                VStack(spacing: 0) {
-                    header
-                        .frame(height: 48)
-
-                    templateCarousel(
-                        in: CGSize(
-                            width: proxy.size.width,
-                            height: max(
-                                proxy.size.height
-                                    + proxy.safeAreaInsets.bottom
-                                    - 48
-                                    - Self.sharePanelHeight,
-                                180
-                            )
-                        )
-                    )
-                    .frame(maxHeight: .infinity)
-
-                    sharePanel
-                        .frame(height: Self.sharePanelHeight)
+        NavigationStack {
+            composerContent
+                .ignoresSafeArea(.container, edges: isLandscapeWrap ? .all : [])
+                .navigationTitle("Share Sessions")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar(isLandscapeWrap ? .visible : .hidden, for: .navigationBar)
+                .toolbarBackground(.hidden, for: .navigationBar)
+                .toolbarColorScheme(.dark, for: .navigationBar)
+                .toolbar {
+                    if isLandscapeWrap {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button {
+                                viewModel.cleanup()
+                                dismiss()
+                            } label: { Image(systemName: "chevron.left") }
+                            .tint(.white)
+                            .disabled(viewModel.isWorking)
+                            .accessibilityLabel("Back")
+                        }
+                    }
                 }
-                .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
-
-                if viewModel.isWorking {
-                    workingOverlay
-                }
-
-                if let result = viewModel.resultMessage {
-                    resultBanner(result)
-                        .frame(maxHeight: .infinity, alignment: .top)
-                        .padding(.top, 58)
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                }
+        }
+        .overlay(alignment: .top) {
+            if let result = viewModel.resultMessage {
+                resultBanner(result)
+                    .padding(.top, 58)
+                    .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
         .task {
@@ -115,6 +104,64 @@ struct WrapShareComposer: View {
         .preferredColorScheme(.dark)
     }
 
+    private var composerContent: some View {
+        GeometryReader { proxy in
+            ZStack {
+                Color.wrappedShareBlue
+                    .ignoresSafeArea()
+
+                if isLandscapeWrap {
+                    let scale = min(proxy.size.width / 402, proxy.size.height / 874)
+                    Image("LandscapeWrapSharePattern")
+                        .resizable()
+                        .frame(width: 786.807 * scale, height: 786.807 * scale)
+                        .position(x: proxy.size.width / 2 + 0.4 * scale, y: 437.403 * scale)
+                        .accessibilityHidden(true)
+
+                    landscapeCarousel(in: CGSize(width: proxy.size.width, height: proxy.size.height * 0.965))
+                        .frame(maxHeight: .infinity, alignment: .top)
+
+                    landscapeSharePanel
+                        .frame(height: 168)
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                } else {
+                    Image("PatternBackground")
+                        .resizable()
+                        .scaledToFill()
+                        .ignoresSafeArea()
+
+                    VStack(spacing: 0) {
+                        header
+                            .frame(height: 48)
+
+                        templateCarousel(
+                            in: CGSize(
+                                width: proxy.size.width,
+                                height: max(
+                                    proxy.size.height
+                                        + proxy.safeAreaInsets.bottom
+                                        - 48
+                                        - Self.sharePanelHeight,
+                                    180
+                                )
+                            )
+                        )
+                        .frame(maxHeight: .infinity)
+
+                        sharePanel
+                            .frame(height: Self.sharePanelHeight)
+                    }
+                    .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
+                }
+
+                if viewModel.isWorking {
+                    workingOverlay
+                }
+
+            }
+        }
+    }
+
     private var header: some View {
         ZStack {
             Text("Share Sessions")
@@ -144,7 +191,7 @@ struct WrapShareComposer: View {
     private func templateCarousel(in available: CGSize) -> some View {
         let cardSize = fittedCardSize(in: available)
         let sideMargin = max((available.width - cardSize.width) / 2, 0)
-        let cardTopPadding = min(Self.cardTopPadding, max((available.height - cardSize.height) / 2, 0))
+        let cardTopPadding = max((available.height - cardSize.height) / 2, 0)
 
         return ScrollView(.horizontal) {
             LazyHStack(alignment: .top, spacing: Self.cardSpacing) {
@@ -174,6 +221,70 @@ struct WrapShareComposer: View {
         }
     }
 
+    private func landscapeCarousel(in available: CGSize) -> some View {
+        let width = min(max(available.width - 48, 0), 354.453)
+        let aspect = viewModel.posterImage.map { $0.size.width / $0.size.height } ?? (354.453 / 197.48)
+        let height = width / aspect
+        let margin = max((available.height - height) / 2, 0)
+
+        return ScrollViewReader { reader in
+            ScrollView(.vertical) {
+                VStack(spacing: 15.495) {
+                    ForEach(viewModel.availableTemplates) { template in
+                        WrapTemplateCard(
+                            image: viewModel.posterImage,
+                            template: template,
+                            metadata: viewModel.metadata,
+                            sourceContainsMetadata: viewModel.sourceContainsMetadata
+                        )
+                        .frame(width: width, height: height)
+                        .opacity(template == viewModel.selectedTemplate ? 1 : 0.5)
+                        .onTapGesture {
+                            withAnimation(.easeInOut(duration: 0.22)) { scrollTarget = template }
+                        }
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityHint("Centers and selects this template")
+                        .id(template)
+                    }
+                }
+                .scrollTargetLayout()
+                .frame(maxWidth: .infinity)
+            }
+            .contentMargins(.vertical, margin, for: .scrollContent)
+            .scrollEdgeEffectHidden(true, for: .top)
+            .scrollTargetBehavior(.viewAligned(limitBehavior: .always, anchor: .center))
+            .scrollPosition(id: $scrollTarget, anchor: .center)
+            .scrollIndicators(.hidden)
+            .frame(height: available.height)
+            .accessibilityLabel("Share template carousel")
+            .accessibilityValue(viewModel.selectedTemplate.displayName)
+            .accessibilityAdjustableAction(adjustTemplate)
+            .onAppear { reader.scrollTo(viewModel.selectedTemplate, anchor: .center) }
+        }
+    }
+
+    private var landscapeSharePanel: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("SHARE TO")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(.black)
+                .frame(height: 13, alignment: .top)
+                .padding(.horizontal, 20)
+
+            shareActions
+                .padding(.horizontal, 20)
+        }
+        .padding(.top, 24)
+        .padding(.bottom, 32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(.white)
+        .clipShape(UnevenRoundedRectangle(topLeadingRadius: 24, topTrailingRadius: 24))
+        .overlay {
+            UnevenRoundedRectangle(topLeadingRadius: 24, topTrailingRadius: 24)
+                .stroke(.black, lineWidth: 2)
+        }
+    }
+
     private var sharePanel: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("SHARE TO")
@@ -181,37 +292,7 @@ struct WrapShareComposer: View {
                 .foregroundStyle(.black)
                 .frame(height: 13, alignment: .top)
 
-            HStack(spacing: 0) {
-                ShareDestinationButton(
-                    title: "Instagram\nStory",
-                    assetName: "InstagramShareIcon",
-                    action: viewModel.shareSelectedToInstagramStory
-                )
-                .frame(maxWidth: .infinity)
-
-                ShareDestinationButton(
-                    title: "Messages",
-                    assetName: "MessagesShareIcon",
-                    action: viewModel.shareSelectedToMessages
-                )
-                .frame(maxWidth: .infinity)
-
-                ShareUtilityButton(
-                    title: "Share",
-                    systemImage: "square.and.arrow.up",
-                    action: viewModel.shareSelected
-                )
-                .frame(maxWidth: .infinity)
-
-                if viewModel.canCopySelected {
-                    ShareUtilityButton(
-                        title: "Copy",
-                        systemImage: "document.on.document",
-                        action: viewModel.copySelected
-                    )
-                    .frame(maxWidth: .infinity)
-                }
-            }
+            shareActions
         }
         .padding(.horizontal, 20)
         .padding(.top, 24)
@@ -236,6 +317,40 @@ struct WrapShareComposer: View {
                 style: .continuous
             )
             .stroke(Color.black, lineWidth: 2)
+        }
+    }
+
+    private var shareActions: some View {
+        HStack(spacing: 0) {
+            ShareUtilityButton(
+                title: "Save",
+                image: Image(systemName: "square.and.arrow.down"),
+                action: viewModel.saveSelectedToPhotos
+            )
+            .frame(maxWidth: .infinity)
+
+            ShareUtilityButton(
+                title: "Share",
+                image: Image(systemName: "square.and.arrow.up"),
+                action: viewModel.shareSelected
+            )
+            .frame(maxWidth: .infinity)
+
+            ShareUtilityButton(
+                title: "Instagram\nStory",
+                image: Image("InstagramShareIcon"),
+                iconSize: 48,
+                action: viewModel.shareSelectedToInstagramStory
+            )
+            .frame(maxWidth: .infinity)
+
+            ShareUtilityButton(
+                title: "Messages",
+                image: Image("MessagesShareIcon"),
+                iconSize: 48,
+                action: viewModel.shareSelectedToMessages
+            )
+            .frame(maxWidth: .infinity)
         }
     }
 
@@ -290,12 +405,21 @@ struct WrapShareComposer: View {
     }
 
     private func fittedCardSize(in available: CGSize) -> CGSize {
-        let widthScale = max((available.width - 32) / Self.cardSize.width, 0)
-        let heightScale = max((available.height - Self.cardTopPadding - 12) / Self.cardSize.height, 0)
+        var cardSize = Self.cardSize
+        if let image = viewModel.posterImage, image.size.width > 0, image.size.height > 0 {
+            // The poster already applies the video's preferred track transform.
+            let aspectRatio = image.size.width / image.size.height
+            let longSide = Self.cardSize.height
+            cardSize = aspectRatio > 1
+                ? CGSize(width: longSide, height: longSide / aspectRatio)
+                : CGSize(width: longSide * aspectRatio, height: longSide)
+        }
+        let widthScale = max((available.width - 32) / cardSize.width, 0)
+        let heightScale = max((available.height - Self.cardTopPadding - 12) / cardSize.height, 0)
         let scale = min(widthScale, heightScale, 1)
         return CGSize(
-            width: Self.cardSize.width * scale,
-            height: Self.cardSize.height * scale
+            width: cardSize.width * scale,
+            height: cardSize.height * scale
         )
     }
 
@@ -321,47 +445,19 @@ struct WrapShareComposer: View {
     }
 }
 
-private struct ShareDestinationButton: View {
-    let title: String
-    let assetName: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 8) {
-                Image(assetName)
-                    .renderingMode(.original)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 48, height: 48)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-                Text(title)
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(Color.black.opacity(0.8))
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(height: 32, alignment: .top)
-            }
-            .frame(width: 68)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(ShareActionButtonStyle())
-        .accessibilityLabel(title.replacingOccurrences(of: "\n", with: " "))
-    }
-}
-
 private struct ShareUtilityButton: View {
     let title: String
-    let systemImage: String
+    let image: Image
+    var iconSize: CGFloat = 24
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             VStack(spacing: 8) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 24, weight: .regular))
+                image
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: iconSize, height: iconSize)
                     .foregroundStyle(Color.black.opacity(0.8))
                     .frame(width: 48, height: 48)
 
@@ -397,26 +493,34 @@ private struct WrapTemplateCard: View {
     var sourceContainsMetadata = false
 
     var body: some View {
-        ZStack {
+        Color.black
+        .overlay {
             if template.isTransparent {
-                CheckerboardBackground()
+                GeometryReader { proxy in
+                    if proxy.size.width > proxy.size.height {
+                        Image("LandscapeWrapTransparencyGrid")
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: proxy.size.width, height: proxy.size.height)
+                            .overlay(.black.opacity(0.6))
+                    } else {
+                        CheckerboardBackground()
+                    }
+                }
             } else if let image {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFill()
             } else {
-                Color.black
-                    .overlay {
-                        ProgressView()
-                            .tint(.white)
-                    }
+                ProgressView()
+                    .tint(.white)
             }
-
+        }
+        .overlay {
             if !(template == .styled && sourceContainsMetadata) {
                 WrapMetadataOverlay(template: template, metadata: metadata)
                     .allowsHitTesting(false)
             }
-
         }
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .overlay {
@@ -435,7 +539,7 @@ struct WrapMetadataOverlay: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let unit = min(proxy.size.width, proxy.size.height)
+            let unit = WrapOverlayLayout.unit(for: template, in: proxy.size)
 
             switch template {
             case .clean:
@@ -444,7 +548,7 @@ struct WrapMetadataOverlay: View {
             case .styled:
                 metadataContent(unit: unit, width: proxy.size.width)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                    .padding(.top, proxy.size.height * WrapOverlayLayout.styledTopRatio)
+                    .padding(.top, proxy.size.height * WrapOverlayLayout.styledTopRatio(in: proxy.size))
 
             case .transparent:
                 VStack(spacing: unit * WrapOverlayLayout.transparentBadgeGapRatio) {
@@ -469,7 +573,7 @@ struct WrapMetadataOverlay: View {
                     metadataContent(unit: unit, width: proxy.size.width)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .padding(.top, proxy.size.height * WrapOverlayLayout.transparentBadgeTopRatio)
+                .padding(.top, proxy.size.height * WrapOverlayLayout.transparentBadgeTopRatio(in: proxy.size))
             }
         }
         .foregroundStyle(.white)
@@ -604,6 +708,18 @@ private struct CheckerboardBackground: View {
             }
         }
     }
+}
+
+// No real video in previews, so the cards show their loading placeholder.
+#Preview("Share composer") {
+    WrapShareComposer(
+        sourceURL: URL(fileURLWithPath: "/dev/null"),
+        metadata: WrapShareMetadata(
+            title: "Morning Session Rush!",
+            duration: "3h 20m",
+            date: "26 May 2026"
+        )
+    )
 }
 
 #Preview("Portrait wrap templates") {

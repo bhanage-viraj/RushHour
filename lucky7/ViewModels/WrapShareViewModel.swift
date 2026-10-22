@@ -69,6 +69,10 @@ final class WrapShareViewModel: ObservableObject {
         }
     }
 
+    func saveSelectedToPhotos() {
+        perform(.saveToPhotos)
+    }
+
     func shareSelected() {
         perform(.systemShare)
     }
@@ -154,6 +158,7 @@ final class WrapShareViewModel: ObservableObject {
 
     private enum Destination {
         case systemShare
+        case saveToPhotos
         case messages
         case instagramStory
         case copy
@@ -164,6 +169,8 @@ final class WrapShareViewModel: ObservableObject {
                 return "Preparing to share..."
             case .copy:
                 return "Preparing image..."
+            case .saveToPhotos:
+                return "Saving to Photos..."
             }
         }
     }
@@ -190,6 +197,17 @@ final class WrapShareViewModel: ObservableObject {
             }
 
             switch destination {
+            case .saveToPhotos:
+                do {
+                    switch output {
+                    case .video(let url): _ = try await PhotoLibrarySaver.saveVideo(at: url)
+                    case .image(let image): try await PhotoLibrarySaver.saveImage(image)
+                    }
+                    self.resultMessage = "Saved to Photos"
+                } catch {
+                    self.errorMessage = error.localizedDescription
+                }
+
             case .systemShare:
                 switch output {
                 case .video(let url):

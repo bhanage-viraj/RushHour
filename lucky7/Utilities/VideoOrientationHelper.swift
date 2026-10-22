@@ -22,11 +22,28 @@ enum VideoOrientationHelper {
         return CGSize(width: abs(transformedRect.width), height: abs(transformedRect.height))
     }
 
-    /// Preview policy is portrait for both cameras, independent of recording orientation.
+    /// Angle that keeps the preview upright in the portrait interface.
+    /// A fixed 90° rotates the on-screen picture sideways.
+    static func uprightPreviewAngle(from coordinator: AVCaptureDevice.RotationCoordinator) -> CGFloat {
+        #if os(iOS)
+        if #available(iOS 27.0, *) {
+            return coordinator.videoRotationAngleRelative(toDeviceOrientation: .portrait)
+        }
+        #endif
+        return coordinator.videoRotationAngleForHorizonLevelPreview
+    }
+
+    /// Preview policy is upright in the preview layer, for both cameras.
     /// Changing only values that differ avoids reconfiguring the preview on every layout.
-    static func configurePortraitPreview(_ connection: AVCaptureConnection, mirrored: Bool) {
-        if connection.isVideoOrientationSupported, connection.videoOrientation != .portrait {
-            connection.videoOrientation = .portrait
+    static func configurePortraitPreview(
+        _ connection: AVCaptureConnection,
+        rotationAngle: CGFloat,
+        mirrored: Bool
+    ) {
+        if rotationAngle.isFinite,
+           connection.isVideoRotationAngleSupported(rotationAngle),
+           abs(connection.videoRotationAngle - rotationAngle) > 0.5 {
+            connection.videoRotationAngle = rotationAngle
         }
         if connection.automaticallyAdjustsVideoMirroring {
             connection.automaticallyAdjustsVideoMirroring = false
@@ -57,5 +74,6 @@ enum VideoOrientationHelper {
 }
 
 extension Notification.Name {
+    static let cameraSwitchWillBegin = Notification.Name("rushhour.cameraSwitchWillBegin")
     static let cameraConfigurationDidChange = Notification.Name("rushhour.cameraConfigurationDidChange")
 }
