@@ -15,6 +15,7 @@ struct Loading: View {
     @StateObject private var tabBarVisibility = TabBarVisibility()
     @State private var pendingRecoverySession: PendingRecoverySession?
     @State private var recoveryCoverActive = SessionEndRecovery.pendingSessionID != nil
+    @State private var historySettingsCoverActive = false
 
     private struct PendingRecoverySession: Identifiable {
         let id: UUID
@@ -48,12 +49,15 @@ struct Loading: View {
                 ZStack(alignment: .bottom) {
                     // Both screens stay alive so each keeps its own navigation
                     // stack and scroll state; only the selected one is shown.
-                    HomePage(isActiveTab: selectedTab == 0, isRecoveryPresented: recoveryCoverActive)
+                    HomePage(
+                        isActiveTab: selectedTab == 0,
+                        isParentCoverPresented: recoveryCoverActive || historySettingsCoverActive
+                    )
                         .opacity(selectedTab == 0 ? 1 : 0)
                         .allowsHitTesting(selectedTab == 0)
                         .zIndex(selectedTab == 0 ? 1 : 0)
 
-                    MonitorScreen()
+                    MonitorScreen(onSettingsPresentationChange: { historySettingsCoverActive = $0 })
                         .opacity(selectedTab == 1 ? 1 : 0)
                         .allowsHitTesting(selectedTab == 1)
                         .zIndex(selectedTab == 1 ? 1 : 0)

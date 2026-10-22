@@ -16,7 +16,7 @@ struct HomePage: View {
     /// Home is hidden — this drives the camera lifecycle so the live preview only runs
     /// while Home is actually visible.
     var isActiveTab: Bool = true
-    var isRecoveryPresented: Bool = false
+    var isParentCoverPresented: Bool = false
 
     @EnvironmentObject private var sessionTimer: SessionTimerViewModel
     @EnvironmentObject private var sessionRecording: SessionRecordingViewModel
@@ -227,7 +227,7 @@ struct HomePage: View {
         .onChange(of: pendingSiriSession.totalSeconds) { _, seconds in
             if seconds != nil { tryStartPendingSiriSession() }
         }
-        .onChange(of: isRecoveryPresented) { _, presented in
+        .onChange(of: isParentCoverPresented) { _, presented in
             if !presented { tryStartPendingSiriSession() }
         }
         .fullScreenCover(isPresented: $showSettings, onDismiss: {
@@ -262,7 +262,7 @@ struct HomePage: View {
             return
         }
         guard scenePhase == .active, !showSettings, !settingsCoverActive,
-              !isRecoveryPresented, SessionEndRecovery.pendingSessionID == nil else { return }
+              !isParentCoverPresented, SessionEndRecovery.pendingSessionID == nil else { return }
         guard let total = pendingSiriSession.totalSeconds else { return }
 
         sessionRecording.noteHomePreviewInteraction()
