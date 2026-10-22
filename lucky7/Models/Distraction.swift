@@ -22,6 +22,23 @@ final class Distraction: Identifiable {
 
     var breakGrantedUntil: Date?
 
+    private static let knownAppNames = [
+        "com.burbn.instagram": "Instagram",
+        "com.zhiliaoapp.musically": "TikTok",
+        "net.whatsapp.WhatsApp": "WhatsApp",
+        "com.google.ios.youtube": "YouTube",
+        "com.facebook.Facebook": "Facebook",
+        "com.atebits.Tweetie2": "X"
+    ]
+
+    var resolvedAppName: String? {
+        let displayName = appDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let displayName, !displayName.isEmpty { return displayName }
+        let legacyName = appOpened.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !legacyName.isEmpty { return legacyName }
+        return Self.knownAppNames[appBundleId ?? ""]
+    }
+
     var distractionDuration: TimeInterval {
         startTime.intervalInSeconds(to: endTime ?? Date())
     }

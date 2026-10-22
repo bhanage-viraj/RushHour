@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 import AVFoundation
 
 // MARK: - Home Page
@@ -15,6 +16,7 @@ struct HomePage: View {
     /// Home is hidden — this drives the camera lifecycle so the live preview only runs
     /// while Home is actually visible.
     var isActiveTab: Bool = true
+    var isRecoveryPresented: Bool = false
 
     @EnvironmentObject private var sessionTimer: SessionTimerViewModel
     @EnvironmentObject private var sessionRecording: SessionRecordingViewModel
@@ -30,6 +32,7 @@ struct HomePage: View {
     @AppStorage("homeTipStartSeen") private var tipStartSeen = false
 
     @State private var showSettings = false
+    @State private var settingsCoverActive = false
 
     /// false = home card; true = full-screen session. Drives the enlarge transition.
     @State private var sessionActive = false
@@ -37,11 +40,6 @@ struct HomePage: View {
     /// true once the session is pushed into full-focus mode — morphs the one shared camera
     /// from the session card down into the focus circle. Shared with the embedded RecordingPage.
     @State private var isFocusExpanded = false
-    // Safe-area insets, read once, so the camera card lines up under the header / above
-    // the tab bar while the camera itself ignores the safe area (to animate to full screen).
-    @State private var safeTop: CGFloat = 47
-    @State private var safeBottom: CGFloat = 34
-
     private let transition = Animation.spring(response: 0.5, dampingFraction: 0.86)
     private let focusTransition = Animation.spring(response: 0.42, dampingFraction: 0.92, blendDuration: 0.08)
 
@@ -62,7 +60,7 @@ struct HomePage: View {
 
             // 1b. Session background (matches FullFocusScreen) — fades in around the frame.
             if sessionActive {
-                RecordingBackground()
+                RecordingBackground(isExpanded: isFocusExpanded, isPaused: !sessionTimer.isRunning)
                     .transition(.opacity)
             }
 
@@ -70,37 +68,47 @@ struct HomePage: View {
             //    never fights another layer for the feed. Its frame animates across three
             //    states: home card → full session card → focus circle.
             GeometryReader { geo in
-                let circleSize: CGFloat = 164
                 let isCircle = sessionActive && isFocusExpanded
                 let homeScale = HomeDesign.scale(in: geo.size)
                 let homeOrigin = HomeDesign.origin(in: geo.size, scale: homeScale)
+                let recordingLayout = RecordingLayout(size: geo.size, isExpanded: isFocusExpanded,
+                                                      isPaused: !sessionTimer.isRunning)
+                let recordingCamera = recordingLayout.camera
 
-                // Card insets (home vs in-session), measured from the screen edges. Active
-                // frame: top sits 6pt below the countdown housing; bottom 6pt below pause.
-                let activeTopInset = safeTop + 60
-                let activeBottomInset = safeBottom + 28
-                let activeHInset: CGFloat = 12
-
-                let activeCardW = max(geo.size.width - activeHInset * 2, 0)
-                let activeCardH = max(geo.size.height - activeTopInset - activeBottomInset, 0)
                 let homeCardW = HomeDesign.camera.width * homeScale
                 let homeCardH = HomeDesign.camera.height * homeScale
 
-                let cardW = sessionActive ? activeCardW : homeCardW
-                let cardH = sessionActive ? activeCardH : homeCardH
                 let homeCenter = HomeDesign.center(of: HomeDesign.camera, origin: homeOrigin, scale: homeScale)
-
-                let camW = isCircle ? circleSize : cardW
-                let camH = isCircle ? circleSize : cardH
-                let centerX = isCircle || sessionActive ? geo.size.width / 2 : homeCenter.x
-                let centerY = isCircle ? safeTop + 168 : (sessionActive ? activeTopInset + activeCardH / 2 : homeCenter.y)
-                let corner: CGFloat = isCircle ? circleSize / 2 : 30
+                let camW = sessionActive ? recordingCamera.width : homeCardW
+                let camH = sessionActive ? recordingCamera.height : homeCardH
+                let centerX = sessionActive ? recordingCamera.midX : homeCenter.x
+                let centerY = sessionActive ? recordingCamera.midY : homeCenter.y
+                let corner = isCircle ? camW / 2 : 30 * (sessionActive ? recordingLayout.scale : homeScale)
 
                 ZStack(alignment: .top) {
                     Color.black
 
                     CameraPreview(session: sessionRecording.captureSession)
                         .frame(width: camW, height: camH)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("Camera preview")
+                        .accessibilityHint("Live timelapse camera feed")
+                        .accessibilityValue(
+                            AccessibilitySupport.cameraPreviewValue(
+                                isRecording: sessionRecording.isRecording,
+                                isPaused: sessionActive && !sessionTimer.isRunning,
+                                frameCount: sessionRecording.capturedFrameCount,
+                                remainingHours: sessionTimer.hours,
+                                remainingMinutes: sessionTimer.minutes,
+                                remainingSeconds: sessionTimer.seconds
+                            )
+                        )
+                        .accessibilityAddTraits(.updatesFrequently)
+
+                    if sessionActive && !isCircle {
+                        RecordingCameraShading(isPaused: !sessionTimer.isRunning)
+                            .frame(width: camW, height: camH)
+                    }
 
                     if isReadyToRecord && !sessionActive && !isCircle {
                         GeometryReader { _ in
@@ -126,10 +134,11 @@ struct HomePage: View {
                 }
                 .frame(width: camW, height: camH)
                     .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
+                    .shadow(color: isCircle ? .black : .clear, radius: 0, y: 4 * recordingLayout.scale)
                     .overlay {
                         if !isCircle {
                             RoundedRectangle(cornerRadius: corner, style: .continuous)
-                                .strokeBorder(Color.black, lineWidth: sessionActive ? 3 : 2)
+                                .strokeBorder(Color.black, lineWidth: sessionActive ? 2 * recordingLayout.scale : 2)
                         }
                     }
                     .position(x: centerX, y: centerY)
@@ -146,11 +155,17 @@ struct HomePage: View {
                     seconds: $seconds,
                     isReadyToRecord: isReadyToRecord,
                     cameraReady: sessionRecording.cameraReady,
+                    showUltraWideControl: sessionRecording.isBackCamera && sessionRecording.supportsUltraWide,
+                    isUltraWideActive: sessionRecording.isUltraWideActive,
                     showSetupTip: showSetupTip,
                     showStartTip: showStartTip,
                     onInteraction: { sessionRecording.noteHomePreviewInteraction() },
-                    onSettings: { showSettings = true },
+                    onSettings: {
+                        settingsCoverActive = true
+                        showSettings = true
+                    },
                     onFlip: { sessionRecording.switchCamera() },
+                    onZoomToggle: { sessionRecording.toggleBackCameraZoom() },
                     onRecord: startSession
                 )
                 .transition(.opacity)
@@ -171,7 +186,6 @@ struct HomePage: View {
                 .transition(.opacity)
             }
         }
-        .background(safeAreaReader)
         .onAppear {
             if isActiveTab { sessionRecording.noteHomePreviewInteraction() }
             tryStartPendingSiriSession()
@@ -213,20 +227,15 @@ struct HomePage: View {
         .onChange(of: pendingSiriSession.totalSeconds) { _, seconds in
             if seconds != nil { tryStartPendingSiriSession() }
         }
-        .fullScreenCover(isPresented: $showSettings) {
+        .onChange(of: isRecoveryPresented) { _, presented in
+            if !presented { tryStartPendingSiriSession() }
+        }
+        .fullScreenCover(isPresented: $showSettings, onDismiss: {
+            settingsCoverActive = false
+            tryStartPendingSiriSession()
+        }) {
             SettingsScreen()
         }
-    }
-
-    private var safeAreaReader: some View {
-        GeometryReader { proxy in
-            Color.clear
-                .onAppear {
-                    safeTop = proxy.safeAreaInsets.top
-                    safeBottom = proxy.safeAreaInsets.bottom
-                }
-        }
-        .ignoresSafeArea()
     }
 
     private func startSession() {
@@ -252,6 +261,8 @@ struct HomePage: View {
             pendingSiriSession.clear()
             return
         }
+        guard scenePhase == .active, !showSettings, !settingsCoverActive,
+              !isRecoveryPresented, SessionEndRecovery.pendingSessionID == nil else { return }
         guard let total = pendingSiriSession.totalSeconds else { return }
 
         sessionRecording.noteHomePreviewInteraction()
@@ -285,11 +296,12 @@ private enum HomeDesign {
     static let setupTip = CGRect(x: 129, y: 281, width: 144, height: 29)
     static let startTip = CGRect(x: 99.5, y: 620, width: 203, height: 29)
     static let recordCenter = CGPoint(x: 201, y: 703)
+    /// Mirrors `flip` on the left of the record button (0.5× / 1× lens).
+    static let zoom = CGRect(x: 36, y: 683, width: 40, height: 40)
     static let flip = CGRect(x: 326, y: 683, width: 40, height: 40)
     static let readyGlowSize = CGSize(width: 759.182, height: 479.275)
-    // This is the glow's center in the camera card's coordinate space. It must
-    // not include the camera card's page-level x origin.
-    static let readyGlowCenter = CGPoint(x: 203.932, y: 98)
+    // Convert the timer's center to the camera card's local coordinates.
+    static let readyGlowCenter = CGPoint(x: timer.midX - camera.minX, y: timer.midY - camera.minY)
 
     static func scale(in size: CGSize) -> CGFloat {
         min(size.width / Self.size.width, size.height / Self.size.height)
@@ -358,23 +370,46 @@ struct BackgroundPatternView: View {
 // MARK: - Session background (matches FullFocusScreen)
 
 struct RecordingBackground: View {
+    var isExpanded = false
+    var isPaused = false
+
     var body: some View {
-        ZStack {
-            Color("CanvasDarkGrey")
-                .ignoresSafeArea()
+        GeometryReader { geometry in
+            let layout = RecordingLayout(size: geometry.size, isExpanded: isExpanded, isPaused: isPaused)
+            ZStack {
+                Color("CanvasDarkGrey")
+                if isExpanded {
+                    Image(isPaused ? "RecordingFocusPausedPattern" : "RecordingFocusPattern")
+                        .resizable()
+                        .frame(width: 747 * layout.scale, height: 747 * layout.scale)
+                        .position(layout.point(201, 443.5))
 
-            Image("PatternBackground")
-                .resizable()
-                .scaledToFill()
-                .ignoresSafeArea()
-                .offset(x: -20, y: 2)
+                    if isPaused {
+                        Image("RecordingFocusPausedHalo")
+                            .resizable()
+                            .frame(width: 591.413 * layout.scale, height: 591.413 * layout.scale)
+                            .position(layout.point(197.13, 437.73))
+                        Image("RecordingFocusPausedGlow")
+                            .resizable()
+                            .frame(width: 633.618 * layout.scale, height: 408.619 * layout.scale)
+                            .position(layout.point(202.82, 461))
+                    }
 
-            VStack {
-                Spacer()
-                Image("bottomBlur")
+                    Color.black.opacity(0.8)
+                        .frame(width: 628 * layout.scale, height: 360.406 * layout.scale)
+                        .blur(radius: 100 * layout.scale)
+                        .position(layout.point(isPaused ? 150 : 201, isPaused ? 736.203 : 709.793))
+                } else {
+                    Image("RecordingPattern")
+                        .resizable()
+                        .frame(width: 963.912 * layout.scale, height: 963.912 * layout.scale)
+                        .position(layout.point(203, 439.976))
+                }
             }
-            .ignoresSafeArea()
+            .frame(width: geometry.size.width, height: geometry.size.height)
+            .clipped()
         }
+        .ignoresSafeArea()
         .allowsHitTesting(false)
         .accessibilityDecorative()
     }
@@ -416,11 +451,14 @@ private struct HomeControls: View {
     @Binding var seconds: Int
     let isReadyToRecord: Bool
     let cameraReady: Bool
+    let showUltraWideControl: Bool
+    let isUltraWideActive: Bool
     let showSetupTip: Bool
     let showStartTip: Bool
     let onInteraction: () -> Void
     let onSettings: () -> Void
     let onFlip: () -> Void
+    let onZoomToggle: () -> Void
     let onRecord: () -> Void
 
     var body: some View {
@@ -478,6 +516,15 @@ private struct HomeControls: View {
                     .position(HomeDesign.center(of: HomeDesign.startTip, origin: origin, scale: scale))
                 }
 
+                if showUltraWideControl {
+                    ZoomLensButton(isUltraWide: isUltraWideActive, scale: scale) {
+                        onInteraction()
+                        onZoomToggle()
+                    }
+                    .disabled(!cameraReady)
+                    .position(HomeDesign.center(of: HomeDesign.zoom, origin: origin, scale: scale))
+                }
+
                 RecordButton(isReady: isReadyToRecord, scale: scale) {
                     onInteraction()
                     onRecord()
@@ -505,7 +552,11 @@ private struct RecordButton: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
+        let label: String = isReady ? "Start focus session" : "Start focus session, unavailable"
+        let hint: String = isReady ? "Begins timelapse recording and focus timer" : "Set a focus duration first"
+        let inputLabels: [String] = ["record", "start", "start session", "start recording", "start timelapse"]
+
+        return Button(action: action) {
             ZStack {
                 Circle()
                     .fill(Color.white.opacity(0.75))
@@ -521,9 +572,9 @@ private struct RecordButton: View {
             .animation(.easeInOut(duration: 0.2), value: isReady)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(isReady ? "Start focus session" : "Start focus session, unavailable")
-        .accessibilityHint(isReady ? "Begins timelapse recording and focus timer" : "Set a focus duration first")
-        .accessibilityInputLabels(["record", "start", "start session", "start recording", "start timelapse"])
+        .accessibilityLabel(label)
+        .accessibilityHint(hint)
+        .accessibilityInputLabels(inputLabels)
         .accessibilityAddTraits(.isButton)
     }
 }
@@ -544,6 +595,30 @@ private struct FlipCameraButton: View {
         .accessibilityLabel("Switch camera")
         .accessibilityHint("Switches between front and back camera")
         .accessibilityInputLabels(["flip camera", "switch camera", "front camera", "back camera"])
+    }
+}
+
+/// Left-of-record lens control for the back camera. Shows the current factor
+/// ("1x" / "0.5"); tap toggles wide ↔ ultra-wide.
+private struct ZoomLensButton: View {
+    let isUltraWide: Bool
+    let scale: CGFloat
+    let action: () -> Void
+
+    private var label: String { isUltraWide ? "0.5" : "1x" }
+
+    var body: some View {
+        Button(action: action) {
+            Text(label)
+                .font(.system(size: 13 * scale, weight: .bold, design: .rounded))
+                .foregroundStyle(Color(red: 52 / 255, green: 52 / 255, blue: 52 / 255))
+                .frame(width: 40 * scale, height: 40 * scale)
+                .background(Color.white.opacity(0.75), in: Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(isUltraWide ? "Ultra wide 0.5x" : "Standard 1x")
+        .accessibilityHint(isUltraWide ? "Switches to the standard back camera" : "Switches to the wider 0.5x camera")
+        .accessibilityInputLabels(["zoom", "0.5", "ultra wide", "wide angle", "1x"])
     }
 }
 
@@ -837,9 +912,30 @@ private struct HomeTimeDial: View {
     }
 }
 
-#Preview {
+private extension HomePage {
+    static var readyPreview: HomePage {
+        var page = HomePage()
+        page._hours = State(initialValue: 2)
+        page._minutes = State(initialValue: 30)
+        return page
+    }
+}
+
+#Preview("Idle") {
     HomePage()
         .environmentObject(SessionTimerViewModel())
         .environmentObject(SessionRecordingViewModel())
+        .environmentObject(FocusViewModel())
         .environmentObject(PendingSiriSession.shared)
+        .modelContainer(for: [Session.self, Distraction.self, PeriodWrap.self], inMemory: true)
+}
+
+#Preview("Ready") {
+    HomePage.readyPreview
+        .id("ready")
+        .environmentObject(SessionTimerViewModel())
+        .environmentObject(SessionRecordingViewModel())
+        .environmentObject(FocusViewModel())
+        .environmentObject(PendingSiriSession.shared)
+        .modelContainer(for: [Session.self, Distraction.self, PeriodWrap.self], inMemory: true)
 }

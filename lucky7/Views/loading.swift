@@ -14,6 +14,7 @@ struct Loading: View {
     @State private var selectedTab = 0
     @StateObject private var tabBarVisibility = TabBarVisibility()
     @State private var pendingRecoverySession: PendingRecoverySession?
+    @State private var recoveryCoverActive = SessionEndRecovery.pendingSessionID != nil
 
     private struct PendingRecoverySession: Identifiable {
         let id: UUID
@@ -47,7 +48,7 @@ struct Loading: View {
                 ZStack(alignment: .bottom) {
                     // Both screens stay alive so each keeps its own navigation
                     // stack and scroll state; only the selected one is shown.
-                    HomePage(isActiveTab: selectedTab == 0)
+                    HomePage(isActiveTab: selectedTab == 0, isRecoveryPresented: recoveryCoverActive)
                         .opacity(selectedTab == 0 ? 1 : 0)
                         .allowsHitTesting(selectedTab == 0)
                         .zIndex(selectedTab == 0 ? 1 : 0)
@@ -78,19 +79,24 @@ struct Loading: View {
                         withAnimation(.easeInOut(duration: 0.2)) { selectedTab = 0 }
                     }
                 }
-                .onReceive(NotificationCenter.default.publisher(for: .returnToHomeTab)) { _ in
-                    withAnimation(.easeInOut(duration: 0.2)) { selectedTab = 0 }
+                .onReceive(NotificationCenter.default.publisher(for: .returnToMySessionsTab)) { _ in
+                    withAnimation(.easeInOut(duration: 0.2)) { selectedTab = 1 }
                 }
-                .fullScreenCover(item: $pendingRecoverySession) { recovery in
+                .fullScreenCover(item: $pendingRecoverySession, onDismiss: {
+                    recoveryCoverActive = false
+                    if pendingSiriSession.hasPending { selectedTab = 0 }
+                }) { recovery in
                     SessionDetails(
                         sessionId: recovery.id,
                         onSave: {
                             SessionEndRecovery.clear(recovery.id)
                             pendingRecoverySession = nil
+                            selectedTab = 1
                         },
                         onFlowComplete: {
                             SessionEndRecovery.clear(recovery.id)
                             pendingRecoverySession = nil
+                            selectedTab = 1
                         }
                     )
                 }
@@ -179,6 +185,7 @@ struct Loading: View {
         guard didShowOnboarding, pendingRecoverySession == nil else { return }
         guard let id = SessionEndRecovery.pendingSessionID else { return }
         RecordingDiagnostics.log("Loading present pending recovery session=\(id)")
+        recoveryCoverActive = true
         pendingRecoverySession = PendingRecoverySession(id: id)
     }
 }

@@ -15,6 +15,14 @@ final class Session: Identifiable {
         return startTime.intervalInSeconds(to: endTime ?? Date())
     }
     
+    // Active countdown time excludes pauses; older records have no saved value.
+    var activeFocusDuration: TimeInterval?
+
+    func focusDuration(distractedDuration: TimeInterval = 0) -> TimeInterval {
+        let focus = activeFocusDuration ?? (actualDuration - distractedDuration)
+        return min(max(focus, 0), max(actualDuration, 0))
+    }
+
     // Set when session starts/ends
     var startTime: Date
     var endTime: Date?             // Optional because it hasn't ended yet when it starts
@@ -38,7 +46,7 @@ final class Session: Identifiable {
     // file via externalStorage so large images don't bloat the DB.
     @Attribute(.externalStorage) var snapshotImages: [Data]
 
-    init(id: UUID = UUID(), userId: UUID, duration: TimeInterval, startTime: Date = Date(), endTime: Date? = nil, videoWrapId: UUID? = nil, wrappedVideoPath: String? = nil, photoAssetId: String? = nil, rawClipPath: String? = nil, title: String = "", summary: String = "", snapshotImages: [Data] = []) {
+    init(id: UUID = UUID(), userId: UUID, duration: TimeInterval, startTime: Date = Date(), endTime: Date? = nil, videoWrapId: UUID? = nil, wrappedVideoPath: String? = nil, photoAssetId: String? = nil, rawClipPath: String? = nil, title: String = "", summary: String = "", snapshotImages: [Data] = [], activeFocusDuration: TimeInterval? = nil) {
         self.id = id
         self.userId = userId
         self.duration = duration
@@ -51,5 +59,6 @@ final class Session: Identifiable {
         self.title = title
         self.summary = summary
         self.snapshotImages = snapshotImages
+        self.activeFocusDuration = activeFocusDuration
     }
 }

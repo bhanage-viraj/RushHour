@@ -17,6 +17,7 @@ struct SessionDetails: View {
     var onFlowComplete: (() -> Void)? = nil
 
     @Environment(\.modelContext) private var context
+    @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var sessionRecording: SessionRecordingViewModel
     @Query private var sessions: [Session]
 
@@ -28,6 +29,9 @@ struct SessionDetails: View {
     @State private var showCamera = false
     @State private var showLibrary = false
     @State private var isSaving = false
+    @State private var showDiscardConfirm = false
+    @State private var didDiscard = false
+    @State private var hasLoadedDraft = false
     @State private var showSaveError = false
     @State private var saveErrorMessage = ""
     @State private var backgroundWrapTask: Task<Void, Never>?
@@ -83,28 +87,61 @@ struct SessionDetails: View {
     }
 
     var body: some View {
-        ZStack {
-            Color("CanvasBlue")
-                .ignoresSafeArea()
+        NavigationStack {
+            detailsContent
+                .navigationTitle("")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbarBackground(.hidden, for: .navigationBar)
+                .toolbarColorScheme(.dark, for: .navigationBar)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button {
+                            focusedField = nil
+                            withAnimation(.easeInOut(duration: 0.2)) { showDiscardConfirm = true }
+                        } label: {
+                            Image(systemName: "chevron.left")
+                        }
+                        .disabled(isSaving)
+                        .tint(.white)
+                        .accessibilityLabel("Back")
+                        .accessibilityHint("Asks before discarding this session")
+                    }
+                }
+        }
+        .accessibilityHidden(showDiscardConfirm)
+        .overlay {
+            if showDiscardConfirm {
+                discardConfirmation
+                    .transition(.opacity)
+            }
+        }
+        .interactiveDismissDisabled()
+    }
 
-            Image("PatternBackground")
-                .resizable()
-                .scaledToFill()
+    private var detailsContent: some View {
+        ZStack {
+            Color("SessionDetailsBlue")
+                .overlay {
+                    Image("SessionDetailsPattern")
+                        .resizable()
+                        .frame(width: 786.807, height: 786.807)
+                        .accessibilityDecorative()
+                }
                 .ignoresSafeArea()
-                .offset(y: -30)
-                .accessibilityDecorative()
 
             ScrollView {
-                VStack(spacing: 24) {
+                VStack(spacing: 14) {
                     sessionCard
                         .disabled(isSaving)
                         .opacity(isSaving ? 0.6 : 1)
                         .animation(.easeInOut(duration: 0.2), value: isSaving)
                     saveButton
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 24)
+                .padding(.horizontal, 24)
+                .padding(.top, 1)
                 .padding(.bottom, 40)
+                .frame(maxWidth: 450)
+                .frame(maxWidth: .infinity)
             }
         }
         .onAppear {
@@ -115,7 +152,7 @@ struct SessionDetails: View {
         .onDisappear {
             backgroundWrapTask?.cancel()
         }
-        .alert("Could not create wrap", isPresented: $showSaveError) {
+        .alert("Could not save session", isPresented: $showSaveError) {
             Button("OK", role: .cancel) { }
         } message: {
             Text(saveErrorMessage)
@@ -125,60 +162,69 @@ struct SessionDetails: View {
     // MARK: - Card
 
     private var sessionCard: some View {
-        PatternBorderedCard {
-            VStack(spacing: 22) {
-                SnapshotsView(images: displayFrame)
+        PatternBorderedCard(cornerRadius: 24, stripHeight: 10) {
+            VStack(spacing: 24) {
+                VStack(spacing: 20) {
+                    SnapshotsView(images: displayFrame)
+                        .scaleEffect(0.941)
+                        .frame(height: 92)
 
-                Text("How was your session?")
-                    .font(.custom("Special Gothic Expanded One", size: 22))
-                    .foregroundColor(.black)
-                    .multilineTextAlignment(.center)
+                    Text("How was your session?")
+                        .font(.custom("Special Gothic Expanded One", size: 22))
+                        .foregroundColor(.black)
+                        .multilineTextAlignment(.center)
+                        .frame(minHeight: 28)
+                }
 
-                LabeledField(title: "TITLE", isRequired: true) {
-                    TextField("", text: $sessionTitle)
+                VStack(spacing: 16) {
+                    LabeledField(title: "TITLE", isRequired: true) {
+                        TextField("", text: $sessionTitle)
+                            .font(.system(size: 15))
+                            .foregroundColor(.black)
+                            .tint(Color("SessionDetailsBlack80"))
+                            .fixedPlaceholder("Give your session a title", isEmpty: sessionTitle.isEmpty, font: .system(size: 15))
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 20)
+                            .frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
+                            .focused($focusedField, equals: .title)
+                            .formFieldStyle(isActive: focusedField == .title)
+                            .accessibilityLabel("Session title")
+                            .accessibilityHint("Up to \(maxTitleLength) characters")
+                            .onChange(of: sessionTitle) { _, newValue in
+                                if newValue.count > maxTitleLength {
+                                    sessionTitle = String(newValue.prefix(maxTitleLength))
+                                }
+                            }
+                    }
+
+                    LabeledField(title: "HOW DID IT GO?") {
+                        TextField(
+                            "",
+                            text: $sessionDescription,
+                            axis: .vertical
+                        )
+                        .lineLimit(2...8)
                         .font(.system(size: 15))
                         .foregroundColor(.black)
-                        .fixedPlaceholder("Give your session a title", isEmpty: sessionTitle.isEmpty, font: .system(size: 15))
+                        .tint(Color("SessionDetailsBlack80"))
+                        .fixedPlaceholder("How do you feel during and after the session?", isEmpty: sessionDescription.isEmpty, font: .system(size: 15), alignment: .topLeading)
                         .padding(.horizontal, 16)
-                        .padding(.vertical, 16)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .focused($focusedField, equals: .title)
-                        .formFieldStyle(isActive: focusedField == .title)
-                        .accessibilityLabel("Session title")
-                        .accessibilityHint("Up to \(maxTitleLength) characters")
-                        .onChange(of: sessionTitle) { _, newValue in
-                            if newValue.count > maxTitleLength {
-                                sessionTitle = String(newValue.prefix(maxTitleLength))
-                            }
-                        }
-                }
+                        .padding(.vertical, 20)
+                        .frame(maxWidth: .infinity, minHeight: 80, alignment: .topLeading)
+                        .focused($focusedField, equals: .description)
+                        .formFieldStyle(isActive: focusedField == .description)
+                        .accessibilityLabel("Session description")
+                        .accessibilityHint("How you felt during and after the session")
+                    }
 
-                LabeledField(title: "HOW DID IT GO?") {
-                    TextField(
-                        "",
-                        text: $sessionDescription,
-                        axis: .vertical
-                    )
-                    .lineLimit(3...8)
-                    .font(.system(size: 15))
-                    .foregroundColor(.black)
-                    .fixedPlaceholder("How do you feel during and after the session?", isEmpty: sessionDescription.isEmpty, font: .system(size: 15), alignment: .topLeading)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
-                    .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
-                    .focused($focusedField, equals: .description)
-                    .formFieldStyle(isActive: focusedField == .description)
-                    .accessibilityLabel("Session description")
-                    .accessibilityHint("How you felt during and after the session")
-                }
-
-                LabeledField(title: "ACTIVITIES SNAPSHOTS") {
-                    snapshotsField
+                    LabeledField(title: "ACTIVITIES SNAPSHOTS") {
+                        snapshotsField
+                    }
                 }
             }
-            .padding(.horizontal, 22)
-            .padding(.top, 32)
-            .padding(.bottom, 30)
+            .padding(.horizontal, 23)
+            .padding(.vertical, 48)
+            .frame(minHeight: 594)
         }
     }
 
@@ -193,15 +239,17 @@ struct SessionDetails: View {
                 } label: {
                     VStack(spacing: 10) {
                         Image(systemName: "photo")
-                            .font(.system(size: 30))
+                            .font(.system(size: 22))
                             .foregroundColor(.black)
 
                         Text("Add Photos/Video")
-                            .font(.custom("Special Gothic Expanded One", size: 14))
-                            .foregroundColor(.black)
+                            .font(.system(size: 13, weight: .bold))
+                            .frame(minHeight: 18)
+                            .foregroundColor(Color("SessionDetailsBlack"))
                     }
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 34)
+                    .padding(.vertical, 24)
+                    .frame(minHeight: 104)
                 }
                 .formFieldStyle(isActive: snapshotFieldActive)
                 .accessibilityLabel("Add activity snapshots")
@@ -289,6 +337,57 @@ struct SessionDetails: View {
         }
     }
 
+    // MARK: - Discard confirmation
+
+    private var discardConfirmation: some View {
+        SessionConfirmSheet(
+            title: "Discard Session?",
+            message: "Your recorded session and analytics will be deleted permanently if you discard this session without saving.",
+            confirmTitle: "DISCARD",
+            confirmAccessibilityLabel: "Discard session permanently",
+            confirmHint: "Deletes this session and its analytics without saving",
+            confirmInputLabels: ["discard", "discard session"],
+            cancelHint: "Keeps your session details so you can continue editing",
+            closeHint: "Cancels discarding the session",
+            onConfirm: discardSession,
+            onCancel: dismissDiscardConfirm
+        )
+    }
+
+    private func dismissDiscardConfirm() {
+        withAnimation(.easeInOut(duration: 0.2)) { showDiscardConfirm = false }
+    }
+
+    private func discardSession() {
+        guard !isSaving, !didDiscard else { return }
+        let id = sessionId
+        do {
+            var descriptor = FetchDescriptor<Session>(predicate: #Predicate { $0.id == id })
+            descriptor.fetchLimit = 1
+            let session = try context.fetch(descriptor).first
+            let distractions = try context.fetch(FetchDescriptor<Distraction>(predicate: #Predicate { $0.sessionId == id }))
+            let wrappedPath = session?.wrappedVideoPath
+            let rawPath = session?.rawClipPath
+            for distraction in distractions { context.delete(distraction) }
+            if let session { context.delete(session) }
+            try context.save()
+
+            didDiscard = true
+            backgroundWrapTask?.cancel()
+            focusedField = nil
+            sessionRecording.discardCurrentSession()
+            WrapStorage.delete(path: wrappedPath)
+            WrapStorage.delete(path: rawPath)
+            SessionEndRecovery.clear(sessionId)
+            if let onFlowComplete { onFlowComplete() } else { dismiss() }
+        } catch {
+            context.rollback()
+            dismissDiscardConfirm()
+            saveErrorMessage = "Could not discard your session. Please try again."
+            showSaveError = true
+        }
+    }
+
     // MARK: - Save button
 
     private var saveButton: some View {
@@ -301,14 +400,14 @@ struct SessionDetails: View {
                 }
 
                 Text(isSaving ? "FINISHING WRAP..." : "SAVE")
-                    .font(.custom("Special Gothic Expanded One", size: 16))
+                    .font(.custom("Special Gothic Expanded One", size: 14))
             }
                 .foregroundColor(.white)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 20)
-                .background(Color.black)
-                .clipShape(RoundedRectangle(cornerRadius: 30))
-                .opacity(isSaveActionable ? 1 : 0.4)
+                .frame(minHeight: 48)
+                .background(Color("SessionDetailsBlack"))
+                .clipShape(Capsule())
+                .opacity(isSaveActionable ? 1 : 0.5)
                 .animation(.easeInOut(duration: 0.2), value: isSaveActionable)
         }
         .disabled(!canSave || isSaving)
@@ -418,7 +517,8 @@ struct SessionDetails: View {
     }
 
     private func loadSessionDraft() {
-        guard let session = sessions.first(where: { $0.id == sessionId }) else { return }
+        guard !hasLoadedDraft, let session = sessions.first(where: { $0.id == sessionId }) else { return }
+        hasLoadedDraft = true
         if sessionTitle.isEmpty {
             sessionTitle = session.title
         }
@@ -435,7 +535,7 @@ struct SessionDetails: View {
     }
 
     private func persistFinalWrap(_ finalURL: URL, reason: String, snapshots: [UIImage]?) {
-        guard let session = sessions.first(where: { $0.id == sessionId }) else { return }
+        guard !didDiscard, let session = sessions.first(where: { $0.id == sessionId }) else { return }
         session.wrappedVideoPath = finalURL.lastPathComponent
         if let rawName = sessionRecording.rawClipURL?.lastPathComponent {
             session.rawClipPath = rawName
@@ -454,7 +554,7 @@ struct SessionDetails: View {
         guard wrappedURL == nil else { return rawURL }
 
         let rawSeconds = Double(SessionRecordingViewModel.estimatedFrameCount(from: rawURL)) / AppConstants.wrappedOutputFPS
-        if session.actualDuration >= 15 * 60, rawSeconds <= staleRollupSliceMaxSeconds {
+        if session.focusDuration() >= 15 * 60, rawSeconds <= staleRollupSliceMaxSeconds {
             RecordingDiagnostics.log("SessionDetails restore skipped short raw source session=\(sessionId) raw=\(rawURL.lastPathComponent) seconds=\(String(format: "%.2f", rawSeconds))")
             return nil
         }
@@ -509,15 +609,18 @@ struct CameraPicker: UIViewControllerRepresentable {
 struct PatternBorderedCard<Content: View>: View {
     var edges: Set<VerticalEdge>
     var cornerRadius: CGFloat
+    var stripHeight: CGFloat
     let content: Content
 
     init(
         edges: Set<VerticalEdge> = [.top, .bottom],
         cornerRadius: CGFloat = 28,
+        stripHeight: CGFloat = 12,
         @ViewBuilder content: () -> Content
     ) {
         self.edges = edges
         self.cornerRadius = cornerRadius
+        self.stripHeight = stripHeight
         self.content = content()
     }
 
@@ -529,14 +632,14 @@ struct PatternBorderedCard<Content: View>: View {
                 if edges.contains(.top) {
                     Image("BlackWhitePattern")
                         .resizable()
-                        .frame(height: 12)
+                        .frame(height: stripHeight)
                 }
             }
             .overlay(alignment: .bottom) {
                 if edges.contains(.bottom) {
                     Image("BlackWhitePattern")
                         .resizable()
-                        .frame(height: 12)
+                        .frame(height: stripHeight)
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
@@ -560,16 +663,12 @@ struct LabeledField<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 2) {
-                Text(title)
-                if isRequired {
-                    Text("*")
-                        .accessibilityLabel("required")
-                }
-            }
-            .font(.custom("Special Gothic Expanded One", size: 11))
-            .foregroundColor(.black)
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.system(size: 10, weight: .bold))
+                .frame(minHeight: 13)
+                .foregroundColor(Color("SessionDetailsBlack80"))
+                .accessibilityLabel(isRequired ? "\(title), required" : title)
             content
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -581,12 +680,12 @@ extension View {
     /// thickens while the field is active (focused, or its picker is open).
     func formFieldStyle(isActive: Bool = false) -> some View {
         background(
-            RoundedRectangle(cornerRadius: 14)
+            RoundedRectangle(cornerRadius: 12)
                 .fill(Color.white)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 14)
-                .stroke(Color.black.opacity(isActive ? 0.9 : 0.35), lineWidth: isActive ? 2 : 1.5)
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color("SessionDetailsBlack80"), lineWidth: isActive ? 2 : 1)
         )
         .animation(.easeInOut(duration: 0.15), value: isActive)
     }
@@ -598,7 +697,7 @@ extension View {
         overlay(alignment: alignment) {
             Text(text)
                 .font(font)
-                .foregroundColor(Color(white: 0.45))
+                .foregroundColor(Color("SessionDetailsBlack80").opacity(0.6))
                 .allowsHitTesting(false)
                 .opacity(isEmpty ? 1 : 0)
         }

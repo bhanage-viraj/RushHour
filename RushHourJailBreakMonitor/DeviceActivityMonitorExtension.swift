@@ -11,7 +11,7 @@ import FamilyControls
 import ManagedSettings
 
 class DeviceActivityMonitorExtension: DeviceActivityMonitor {
-    private let appGroupId = "group.bhanageviraj.RushHour"
+    private let appGroupId = Bundle.main.object(forInfoDictionaryKey: "RushHourAppGroup") as! String
 
     private func containerFile(_ name: String) -> URL? {
         FileManager.default

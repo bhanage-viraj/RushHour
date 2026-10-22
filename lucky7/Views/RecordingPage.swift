@@ -34,6 +34,10 @@ struct RecordingPage: View {
     @State private var isStartingSession = false
     @State private var isPauseResumeTransitioning = false
     @State private var showEndConfirm = false
+    @State private var showResumeReminder = false
+    /// Set when the app is backgrounded mid-session, so only a real return to the app
+    /// (not a Control Center / Notification Center pull-down) brings up the reminder.
+    @State private var leftAppMidSession = false
     @State private var showFinishSessionFlow = false
     @State private var showCrashSession = false
     @State private var showNotifNudge = false
@@ -55,6 +59,7 @@ struct RecordingPage: View {
         hasStarted
             && sessionTimer.isRunning
             && !showEndConfirm
+            && !showResumeReminder
             && !showFinishSessionFlow
             && !showCrashSession
             && !showNotifNudge
@@ -63,6 +68,15 @@ struct RecordingPage: View {
             && breakBlockedInfo == nil
             && !sessionRecording.isExporting
             && scenePhase == .active
+    }
+
+    /// The break flow's own prompts (reason form, unlock / one-break cards) take
+    /// priority; the paused-session reminder waits behind them.
+    private var isResumeReminderVisible: Bool {
+        showResumeReminder
+            && pendingPrompt == nil
+            && unlock == nil
+            && breakBlockedInfo == nil
     }
 
     // jailbreak: distraction prompt + in-app unlock card + records sheet
@@ -88,42 +102,14 @@ struct RecordingPage: View {
         let id = UUID()
     }
 
-    private var recordingStatusPill: some View {
-        HStack(spacing: 7) {
-            if sessionTimer.isRunning {
-                Circle()
-                    .fill(.white)
-                    .frame(width: 8, height: 8)
-                Text("Recording")
-            } else {
-                Image(systemName: "pause.fill")
-                    .font(.system(size: 10, weight: .bold))
-                Text("Paused")
-            }
-        }
-        .font(.system(size: 12, weight: .semibold))
-        .foregroundColor(.white)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 7)
-        .background(sessionTimer.isRunning ? Color.red : Color(white: 0.26), in: Capsule())
-        .animation(.easeInOut(duration: 0.2), value: sessionTimer.isRunning)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(sessionTimer.isRunning ? "Recording in progress" : "Recording paused")
-        .accessibilityValue(
-            "\(sessionRecording.capturedFrameCount) frames captured. \(AccessibilitySupport.spokenCountdown(hours: sessionTimer.hours, minutes: sessionTimer.minutes, seconds: sessionTimer.seconds))"
-        )
-        .accessibilityAddTraits(.updatesFrequently)
-    }
-
     var body: some View {
 
         ZStack {
 
-            // Expanded background — full-focus mode. Standalone only; when embedded,
+            // Session background. Standalone only; when embedded,
             // HomePage draws the session background beneath its shared camera.
             if !embedded {
-                RecordingBackground()
-                    .opacity(isExpanded ? 1 : 0)
+                RecordingBackground(isExpanded: isExpanded, isPaused: hasStarted && !sessionTimer.isRunning)
                     .animation(focusTransition, value: isExpanded)
             }
 
@@ -132,25 +118,27 @@ struct RecordingPage: View {
             // and morphs it into the circle itself, so we draw no camera here.
             if !embedded {
                 GeometryReader { geo in
-                    let circleSize: CGFloat = 164
-                    let cameraW: CGFloat = isExpanded ? circleSize : geo.size.width
-                    let cameraH: CGFloat = isExpanded ? circleSize : geo.size.height
-                    let camCenterY: CGFloat = isExpanded
-                        ? geo.safeAreaInsets.top + 168
-                        : geo.size.height / 2
+                    let layout = RecordingLayout(size: geo.size, isExpanded: isExpanded,
+                                                 isPaused: hasStarted && !sessionTimer.isRunning)
+                    let camera = layout.camera
 
                     ZStack {
-                        // Drop-shadow behind the camera circle (expanded only)
-                        Circle()
-                            .fill(Color.black)
-                            .frame(width: circleSize, height: circleSize)
-                            .position(x: geo.size.width / 2, y: camCenterY + 10)
-                            .opacity(isExpanded ? 1 : 0)
-
                         CameraPreview(session: sessionRecording.captureSession)
-                            .frame(width: cameraW, height: cameraH)
-                            .clipShape(RoundedRectangle(cornerRadius: isExpanded ? circleSize / 2 : 0))
-                            .position(x: geo.size.width / 2, y: camCenterY)
+                            .frame(width: camera.width, height: camera.height)
+                            .overlay {
+                                if !isExpanded {
+                                    RecordingCameraShading(isPaused: hasStarted && !sessionTimer.isRunning)
+                                }
+                            }
+                            .clipShape(RoundedRectangle(cornerRadius: isExpanded ? camera.width / 2 : 30 * layout.scale))
+                            .shadow(color: isExpanded ? .black : .clear, radius: 0, y: 4 * layout.scale)
+                            .overlay {
+                                if !isExpanded {
+                                    RoundedRectangle(cornerRadius: 30 * layout.scale)
+                                        .strokeBorder(.black, lineWidth: 2 * layout.scale)
+                                }
+                            }
+                            .position(x: camera.midX, y: camera.midY)
                             .accessibilityElement(children: .ignore)
                             .accessibilityLabel("Camera preview")
                             .accessibilityHint("Live timelapse camera feed")
@@ -171,111 +159,19 @@ struct RecordingPage: View {
                 .ignoresSafeArea()
             }
 
-            VStack(spacing: 0) {
-                // COUNTDOWN — live remaining time in the traffic housing, with a soft
-                // rainbow glow BEHIND it (peeking out just below) while paused.
-                ZStack {
-                    if hasStarted && !sessionTimer.isRunning {
-                        Image("RainbowEffect")
-                            .resizable()
-                            .scaledToFill()
-                            .frame(width: 240, height: 46)
-                            .blur(radius: 14)
-                            .opacity(0.85)
-                            .offset(y: 28)
-                            .allowsHitTesting(false)
-                            .accessibilityDecorative()
-                            .transition(.opacity)
-                    }
-
-                    RecordingTrafficTimer(
-                        hours: sessionTimer.hours,
-                        minutes: sessionTimer.minutes,
-                        seconds: sessionTimer.seconds
-                    )
-                }
-                .padding(.top, 8)
-
-                if hasStarted {
-                    recordingStatusPill
-                        .padding(.top, 12)
-                }
-
-                Spacer()
-
-                // CONTROL BAR — stop · pause/resume · expand
-                HStack {
-                    // STOP — ask before ending the session early
-                    Button(action: { withAnimation(.easeInOut(duration: 0.2)) { showEndConfirm = true } }) {
-                        Circle()
-                            .fill(.ultraThinMaterial)
-                            .frame(width: 60, height: 60)
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                    .fill(Color.red)
-                                    .frame(width: 22, height: 22)
-                            }
-                    }
-                    .accessibilityLabel("End session")
-                    .accessibilityHint("Stops recording and ends your focus session early")
-                    .accessibilityInputLabels(["stop", "end session", "stop recording", "end timelapse"])
-
-                    Spacer()
-
-                    // PAUSE / RESUME
-                    Button(action: togglePauseResume) {
-                        Circle()
-                            .fill(.white)
-                            .frame(width: 82, height: 82)
-                            .overlay {
-                                Image(systemName: sessionTimer.isRunning ? "pause.fill" : "play.fill")
-                                    .font(.system(size: 30, weight: .semibold))
-                                    .foregroundStyle(.black)
-                            }
-                            .shadow(color: .black.opacity(0.2), radius: 6, y: 3)
-                    }
-                    .accessibilityLabel(sessionTimer.isRunning ? "Pause session" : "Resume session")
-                    .accessibilityHint(sessionTimer.isRunning ? "Pauses the timer and timelapse recording" : "Resumes the timer and timelapse recording")
-                    .accessibilityInputLabels(sessionTimer.isRunning
-                        ? ["pause", "pause session", "pause recording"]
-                        : ["resume", "play", "resume session", "continue recording"])
-                    .disabled(isPauseResumeTransitioning)
-                    .opacity(isPauseResumeTransitioning ? 0.65 : 1)
-
-                    Spacer()
-
-                    // EXPAND — fullscreen focus view
-                    // EXPAND — full-focus view (same camera, different chrome)
-                    Button(action: { withAnimation(focusTransition) { isExpanded = true } }) {
-                        Circle()
-                            .fill(.ultraThinMaterial)
-                            .frame(width: 60, height: 60)
-                            .overlay {
-                                Image(systemName: "arrow.down.right.and.arrow.up.left")
-                                    .font(.system(size: 21, weight: .semibold))
-                                    .foregroundStyle(.white)
-                            }
-                    }
-                    .accessibilityLabel("Enter full focus mode")
-                    .accessibilityHint("Shows a larger timer with fewer distractions")
-                    .accessibilityInputLabels(["expand", "full focus", "focus mode", "fullscreen"])
-                }
-                .padding(.horizontal, 44)
-                .padding(.bottom, 24)
-            }
-            .opacity(isExpanded ? 0 : 1)
-            .scaleEffect(isExpanded ? 0.98 : 1)
-            .blur(radius: isExpanded ? 5 : 0)
+            RecordingControls(
+                hours: sessionTimer.hours,
+                minutes: sessionTimer.minutes,
+                seconds: sessionTimer.seconds,
+                hasStarted: hasStarted,
+                isRunning: sessionTimer.isRunning,
+                isExpanded: isExpanded,
+                isTransitioning: isPauseResumeTransitioning,
+                onEnd: { withAnimation(.easeInOut(duration: 0.2)) { showEndConfirm = true } },
+                onPauseResume: togglePauseResume,
+                onToggleExpanded: { withAnimation(focusTransition) { isExpanded.toggle() } }
+            )
             .animation(focusTransition, value: isExpanded)
-            .allowsHitTesting(!isExpanded)
-
-            // ── Expanded (full-focus) overlay ─────────────────
-            expandedSessionOverlay
-                .opacity(isExpanded ? 1 : 0)
-                .scaleEffect(isExpanded ? 1 : 1.02)
-                .blur(radius: isExpanded ? 0 : 5)
-                .animation(focusTransition, value: isExpanded)
-                .allowsHitTesting(isExpanded)
 
             if sessionRecording.isExporting {
                 Color.black.opacity(0.55)
@@ -323,12 +219,25 @@ struct RecordingPage: View {
                 .zIndex(20)
                 .accessibilityAddTraits(.isModal)
             }
+
+            // Always mounted so it can run its own slide and emoji animations both ways.
+            ResumeSessionReminder(
+                isPresented: isResumeReminderVisible,
+                onContinue: continueFromReminder,
+                onEnd: {
+                    showResumeReminder = false
+                    endSessionEarly()
+                },
+                onDismiss: { showResumeReminder = false }
+            )
+            .zIndex(20)
         }
         // The embedded camera belongs to HomePage, so include the transparent gaps
         // between our controls in hit testing as well as the controls themselves.
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())
         .accessibilityAnnounce(when: sessionRecording.isExporting, message: "Saving your video")
+        .accessibilityAnnounce(when: isResumeReminderVisible, message: "Session paused. Continue recording or end your session.")
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { _ in ScreenDimmer.touch() }
@@ -428,6 +337,10 @@ struct RecordingPage: View {
                     ScreenWakeLock.setActive(true)
                 }
                 checkPendingEvents()   // jailbreak: pick up a break taken on the shield
+                if leftAppMidSession {
+                    leftAppMidSession = false
+                    presentResumeReminderIfNeeded()   // after checkPendingEvents, so a break prompt wins
+                }
                 UNUserNotificationCenter.current().removeDeliveredNotifications(
                     withIdentifiers: ["rushhour.shieldreturn", "rushhour.shieldreason"]
                 )
@@ -441,6 +354,7 @@ struct RecordingPage: View {
                 // left the app → pause the session instead of letting it silently freeze and
                 // auto-resume; the button flips to RESUME so you pick back up deliberately
                 if hasStarted {
+                    leftAppMidSession = true
                     if wasRunning {
                         pauseLiveSession(reason: "background")
                     } else {
@@ -484,13 +398,13 @@ struct RecordingPage: View {
         }
 
         .fullScreenCover(isPresented: $showFinishSessionFlow) {
-            FinishSessionScreen(onFlowComplete: exitToHomeFromSessionFlow)
+            FinishSessionScreen(onFlowComplete: completeSessionFlow)
         }
         .fullScreenCover(isPresented: $showCrashSession) {
-            CrashSessionScreen(onFlowComplete: exitToHomeFromSessionFlow)
+            CrashSessionScreen(onFlowComplete: completeSessionFlow)
         }
-        // jailbreak: reason sheet over the recording when a break was taken on the shield
-        .sheet(item: $pendingPrompt) { prompt in
+        // The transparent modal leaves room for the artwork above the reason drawer.
+        .fullScreenCover(item: $pendingPrompt) { prompt in
             ReasonFormView(
                 appName: prompt.distraction.appOpened.isEmpty ? "this app" : prompt.distraction.appOpened,
                 onSubmit: { takeBreak($0, for: prompt) },
@@ -502,171 +416,9 @@ struct RecordingPage: View {
             } message: {
                 Text("The app is still blocked. Please try submitting your reason again.")
             }
-            .presentationDetents([.large])
-            .presentationCornerRadius(40)
-            .presentationDragIndicator(.visible)
-            .presentationBackground {
-                LinearGradient(
-                    colors: [Color(red: 0x00/255.0, green: 0x32/255.0, blue: 0x61/255.0),
-                             Color(red: 0x0B/255.0, green: 0x1F/255.0, blue: 0x32/255.0)],
-                    startPoint: .top, endPoint: .bottom
-                )
-                .overlay {
-                    Image("ReasonSheetBg")
-                        .resizable()
-                        .scaledToFill()
-                        .blendMode(.overlay)
-                }
-            }
+            .presentationBackground(.clear)
             // sheet stays put until they actually submit or cancel — no swipe-away
             .interactiveDismissDisabled()
-        }
-    }
-
-    // MARK: - Expanded (full-focus) overlay
-
-    @ViewBuilder
-    private var expandedSessionOverlay: some View {
-        VStack(spacing: 0) {
-            Color.clear.frame(height: 24)
-
-            // Paused badge (top-left)
-            HStack {
-                Text("PAUSED")
-                    .foregroundStyle(.white)
-                    .font(.system(size: 14))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(
-                        Capsule()
-                            .fill(Color(.canvasRed))
-                    )
-                    .opacity(sessionTimer.isRunning ? 0 : 1)
-                    .accessibilityHidden(sessionTimer.isRunning)
-                    .accessibilityLabel("Paused")
-            }
-            .frame(maxWidth: .infinity, alignment: .center)
-            .padding(.horizontal, 12)
-
-            Color.clear.frame(height: 40)
-
-            // Space for the camera circle (rendered in the camera layer)
-            Color.clear.frame(height: 164)
-
-            // Traffic-light timer
-            ZStack(alignment: .center) {
-                if !sessionTimer.isRunning {
-                    Image(.redYellowGreen)
-                        .frame(height: 136)
-                        .accessibilityDecorative()
-                }
-
-                Image(.trafficLight)
-                    .accessibilityDecorative()
-
-                HStack {
-                    Text("\(sessionTimer.hours)")
-                        .font(.custom("Special Gothic Expanded One", size: 34))
-                        .frame(width: 104, height: 102)
-
-                    Text(String(format: "%02d", sessionTimer.minutes))
-                        .font(.custom("Special Gothic Expanded One", size: 34))
-                        .frame(width: 104, height: 102)
-
-                    Text(String(format: "%02d", sessionTimer.seconds))
-                        .font(.custom("Special Gothic Expanded One", size: 34))
-                        .frame(width: 110, height: 102)
-                        .clipped()
-                }
-                .foregroundStyle(.white)
-                .frame(height: 136)
-                .zIndex(2.0)
-                .offset(y: -8)
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Time remaining")
-            .accessibilityValue(AccessibilitySupport.spokenCountdown(
-                hours: sessionTimer.hours,
-                minutes: sessionTimer.minutes,
-                seconds: sessionTimer.seconds
-            ))
-            .accessibilityAddTraits(.updatesFrequently)
-            .padding(.top, 36)
-
-            Spacer()
-
-            VStack(alignment: .center) {
-                Text("Tips:")
-                Text("Don't forget to take break")
-            }
-            .opacity(0.5)
-            .foregroundStyle(.white)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("Tip: Don't forget to take a break")
-
-            Spacer()
-
-            // Bottom control bar — same actions as minimized, different style
-            HStack {
-                // STOP
-                Button(action: {
-                    withAnimation(.easeInOut(duration: 0.2)) { showEndConfirm = true }
-                }) {
-                    ZStack {
-                        Circle()
-                            .fill(.white.opacity(0.75))
-                            .frame(width: 56, height: 56)
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(.red)
-                            .frame(width: 20, height: 20)
-                    }
-                }
-                .accessibilityLabel("End session")
-                .accessibilityHint("Stops recording and ends your focus session early")
-                .accessibilityInputLabels(["stop", "end session", "stop recording"])
-
-                Spacer()
-
-                // PAUSE / RESUME (uses the unified togglePauseResume)
-                Button(action: togglePauseResume) {
-                    ZStack {
-                        Circle()
-                            .fill(.white.opacity(0.75))
-                            .frame(width: 100, height: 100)
-                        Image(systemName: sessionTimer.isRunning ? "pause.fill" : "play.fill")
-                            .font(.system(size: 36))
-                            .foregroundStyle(.black)
-                    }
-                }
-                .accessibilityLabel(sessionTimer.isRunning ? "Pause session" : "Resume session")
-                .accessibilityInputLabels(sessionTimer.isRunning ? ["pause"] : ["resume", "play"])
-                .disabled(isPauseResumeTransitioning)
-                .opacity(isPauseResumeTransitioning ? 0.65 : 1)
-
-                Spacer()
-
-                // MINIMIZE — shrink back to the recording page layout
-                Button(action: {
-                    withAnimation(focusTransition) {
-                        isExpanded = false
-                    }
-                }) {
-                    ZStack {
-                        Circle()
-                            .fill(.white.opacity(0.75))
-                            .frame(width: 56, height: 56)
-                        Image(systemName: "arrow.up.left.and.arrow.down.right")
-                            .font(.system(size: 18))
-                            .foregroundStyle(.black)
-                    }
-                }
-                .accessibilityLabel("Exit full focus mode")
-                .accessibilityHint("Returns to the standard recording layout")
-                .accessibilityInputLabels(["minimize", "exit focus", "collapse"])
-            }
-            .padding(.horizontal, 24)
-
-            Color.clear.frame(height: 16)
         }
     }
 
@@ -681,6 +433,7 @@ struct RecordingPage: View {
         #endif
         try? modelContext.save()
         pendingPrompt = nil
+        showResumeReminder = false   // they chose a break, so staying paused is deliberate
     }
 
     private func saveBreakReason(_ reason: String, for distraction: Distraction) -> Bool {
@@ -786,6 +539,11 @@ struct RecordingPage: View {
         }
     }
 
+    private func completeSessionFlow() {
+        exitToHomeFromSessionFlow()
+        NotificationCenter.default.post(name: .returnToMySessionsTab, object: nil)
+    }
+
     private func exitToHomeFromSessionFlow() {
         var transaction = Transaction()
         transaction.disablesAnimations = true
@@ -798,6 +556,8 @@ struct RecordingPage: View {
         hasStarted = false
         isStartingSession = false
         isPauseResumeTransitioning = false
+        showResumeReminder = false
+        leftAppMidSession = false
         sessionTimer.pause()
         SessionNotifications.cancelAwayNudges()
         // Embedded: keep the shared camera running so it flows straight back into the
@@ -879,10 +639,33 @@ struct RecordingPage: View {
         #endif
     }
 
+    // Back in the app with the session still paused → remind them to continue or end it.
+    private func presentResumeReminderIfNeeded() {
+        guard hasStarted,
+              sessionRecording.isRecording,
+              !sessionTimer.isRunning,
+              !sessionRecording.isExporting,
+              !showFinishSessionFlow,
+              !showCrashSession else { return }
+        recLog("presentResumeReminder")
+        withAnimation(.easeInOut(duration: 0.2)) {
+            showEndConfirm = false   // the reminder offers END as well
+            showResumeReminder = true
+        }
+    }
+
+    private func continueFromReminder() {
+        showResumeReminder = false
+        guard !sessionTimer.isRunning else { return }
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+            resumeLiveSession(reason: "return reminder")
+        }
+    }
+
     private func endSessionEarly() {
         recLog("endSessionEarly")
         SessionNotifications.cancelAwayNudges()
-        sessionTimer.pause()
+        sessionTimer.end()
         #if os(iOS)
         focusController.release()   // lift the shield the moment they end, not after the recap
         #endif
@@ -907,76 +690,6 @@ struct RecordingPage: View {
 }
 
 
-// MARK: - Countdown housing
-//
-// Compact, label-less version of the home traffic housing: three split shell
-// layers in a dark rounded bar, showing the live remaining time.
-
-private struct RecordingTrafficTimer: View {
-    let hours: Int
-    let minutes: Int
-    let seconds: Int
-
-    private let panelSize: CGFloat = 74
-
-    var body: some View {
-        HStack(spacing: 8) {
-            panel(text: "\(hours)")
-            panel(text: String(format: "%02d", minutes))
-            panel(text: String(format: "%02d", seconds))
-        }
-        .padding(9)
-        .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(Color(white: 0.05))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
-                )
-                .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
-        )
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Time remaining")
-        .accessibilityValue(AccessibilitySupport.spokenCountdown(hours: hours, minutes: minutes, seconds: seconds))
-        .accessibilityAddTraits(.updatesFrequently)
-    }
-
-    private func panel(text: String) -> some View {
-        let lensDiameter = panelSize * 0.68
-        let lensArtDiameter = panelSize * (87.27 / 99.36)
-        let shellShadowHeight = panelSize * (26.69 / 99.36)
-        let shellShadowWidth = panelSize * (99.41 / 99.36)
-        let lensTop = (panelSize - lensArtDiameter) / 2
-        let wheelTop = (panelSize - lensDiameter) / 2
-
-        return ZStack(alignment: .top) {
-            Image("TrafficShellShadow")
-                .resizable()
-                .frame(width: shellShadowWidth, height: shellShadowHeight)
-                .offset(y: panelSize)
-
-            Image("TrafficShellBg")
-                .resizable()
-                .frame(width: panelSize, height: panelSize)
-
-            Image("TrafficShell")
-                .resizable()
-                .frame(width: lensArtDiameter, height: lensArtDiameter)
-                .offset(y: lensTop)
-
-            Text(text)
-                .font(.custom("Special Gothic Expanded One", size: panelSize * 0.4))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .frame(width: lensDiameter, height: lensDiameter)
-                .clipShape(RoundedRectangle(cornerRadius: lensDiameter * 0.18, style: .continuous))
-                .offset(y: wheelTop)
-        }
-        .frame(width: panelSize, height: panelSize)
-    }
-}
-
 // MARK: - End Session confirmation
 
 struct EndSessionConfirm: View {
@@ -984,83 +697,207 @@ struct EndSessionConfirm: View {
     let onCancel: () -> Void
 
     var body: some View {
+        SessionConfirmSheet(
+            title: "End Session",
+            message: "Ending now will stop recording\nand end your session early",
+            confirmTitle: "END",
+            confirmAccessibilityLabel: "End session now",
+            confirmHint: "Stops recording and ends your session early",
+            confirmInputLabels: ["end", "confirm end", "stop session"],
+            cancelHint: "Continues your current session",
+            closeHint: "Cancels ending the session",
+            onConfirm: onEnd,
+            onCancel: onCancel
+        )
+    }
+}
+
+// MARK: - Resume reminder
+
+/// Bottom sheet shown when the user comes back to the app and the session is still
+/// paused, so they don't forget to resume. It stays mounted and slides itself in and
+/// out with `isPresented`; the emoji pop up from behind its top edge once it lands.
+/// Swiping it down or tapping outside keeps the session paused.
+struct ResumeSessionReminder: View {
+    let isPresented: Bool
+    let onContinue: () -> Void
+    let onEnd: () -> Void
+    let onDismiss: () -> Void
+
+    @GestureState(resetTransaction: Transaction(animation: .spring(response: 0.35, dampingFraction: 0.85)))
+    private var dragOffset: CGFloat = 0
+    @State private var sheetHeight: CGFloat = 400
+    @State private var emojisRaised = false
+
+    private let sheetShape = UnevenRoundedRectangle(
+        topLeadingRadius: 36,
+        topTrailingRadius: 36,
+        style: .continuous
+    )
+
+    var body: some View {
         ZStack(alignment: .bottom) {
-            Color.black.opacity(0.4)
-                .ignoresSafeArea()
-                .onTapGesture(perform: onCancel)
+            if isPresented {
+                // The design has no dim, but a tap outside the sheet still dismisses it.
+                Color.clear
+                    .contentShape(Rectangle())
+                    .ignoresSafeArea()
+                    .onTapGesture(perform: onDismiss)
+                    .accessibilityHidden(true)
+            }
+
+            sheet
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { sheetHeight = $0 }
+                // Hidden = pushed below the screen, far enough to take the emoji with it.
+                .offset(y: isPresented ? dragOffset : sheetHeight + 200)
+                .animation(.spring(response: 0.45, dampingFraction: 0.88), value: isPresented)
+                .gesture(dismissDrag)
+                .allowsHitTesting(isPresented)
+                .accessibilityHidden(!isPresented)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .onAppear { emojisRaised = isPresented }
+        .onChange(of: isPresented) { _, presented in emojisRaised = presented }
+    }
+
+    private var sheet: some View {
+        VStack(spacing: 0) {
+            Capsule()
+                .fill(Color.white.opacity(0.6))
+                .frame(width: 54, height: 5)
+                .padding(.top, 14)
                 .accessibilityHidden(true)
 
-            VStack(spacing: 0) {
-                Capsule()
-                    .fill(Color.black.opacity(0.18))
-                    .frame(width: 38, height: 5)
-                    .padding(.top, 10)
+            Text("Continue session?")
+                .font(.custom("Special Gothic Expanded One", size: 22))
+                .foregroundStyle(.white)
+                .padding(.top, 20)
+                .accessibilityAddTraits(.isHeader)
 
-                HStack {
-                    Spacer()
-                    Button(action: onCancel) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(Color.black.opacity(0.55))
-                            .frame(width: 44, height: 44)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Close")
-                    .accessibilityHint("Cancels ending the session")
-                }
-                .padding(.horizontal, 18)
-                .padding(.top, 6)
-
-                Text("End Session")
-                    .font(.custom("Special Gothic Expanded One", size: 22))
-                    .foregroundStyle(.black)
-                    .padding(.top, 2)
-
-                Text("Ending now will stop recording\nand end your session early")
-                    .font(.system(size: 17, weight: .regular))
-                    .foregroundStyle(Color.black.opacity(0.8))
-                    .multilineTextAlignment(.center)
-                    .padding(.top, 10)
-
-                HStack(spacing: 14) {
-                    Button(action: onEnd) {
-                        Text("END")
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(.red)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 50)
-                            .overlay(Capsule().stroke(Color.red, lineWidth: 1.5))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("End session now")
-                    .accessibilityHint("Stops recording and ends your session early")
-                    .accessibilityInputLabels(["end", "confirm end", "stop session"])
-
-                    Button(action: onCancel) {
-                        Text("CANCEL")
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 50)
-                            .background(Color.black, in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Cancel")
-                    .accessibilityHint("Continues your current session")
-                    .accessibilityInputLabels(["cancel", "keep going", "go back"])
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 22)
-                .padding(.bottom, 22)
+            HStack(spacing: 12) {
+                endButton
+                continueButton
             }
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
             .padding(.horizontal, 20)
-            .padding(.bottom, 28)
-            .shadow(color: .black.opacity(0.2), radius: 20, y: 8)
-            .accessibilityElement(children: .contain)
-            .accessibilityAddTraits(.isModal)
+            .padding(.top, 22)
+            .padding(.bottom, 14)
         }
+        .frame(maxWidth: .infinity)
+        .background(alignment: .top) {
+            sheetShape
+                .fill(Color("CanvasBlue"))
+                .overlay(alignment: .top) {
+                    Image("PatternBackgroundSmall")
+                        .resizable()
+                        .scaledToFill()
+                }
+                .clipShape(sheetShape)
+                .ignoresSafeArea(edges: .bottom)
+        }
+        // Behind the sheet, so its top edge tucks away the bottom of the emoji.
+        .background(alignment: .top) {
+            emojiRow
+                .alignmentGuide(.top) { $0[.bottom] - 22 }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(.isModal)
+        .accessibilityAction(.escape, onDismiss)
+    }
+
+    // ✍️ 👩‍💻 👀 peeking over the sheet. While hidden they sit below its top edge, then
+    // spring up one after another as it lands.
+    private var emojiRow: some View {
+        ZStack(alignment: .bottom) {
+            peeking(
+                Text("👩‍💻")
+                    .font(.system(size: 104))
+                    .offset(y: -6),
+                delay: 0.28
+            )
+
+            peeking(
+                Text("✍️")
+                    .font(.system(size: 66))
+                    .scaleEffect(x: -1, y: 1)   // mirrored so the pen points away from the laptop
+                    .rotationEffect(.degrees(-35))
+                    .offset(x: -84, y: -14),
+                delay: 0.22
+            )
+
+            peeking(
+                Text("👀")
+                    .font(.system(size: 92))
+                    .offset(x: 86),
+                delay: 0.34
+            )
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func peeking(_ emoji: some View, delay: Double) -> some View {
+        emoji
+            .offset(y: emojisRaised ? 0 : 120)
+            .animation(
+                emojisRaised
+                    ? .spring(response: 0.5, dampingFraction: 0.6).delay(delay)
+                    : .easeIn(duration: 0.15),
+                value: emojisRaised
+            )
+    }
+
+    private var dismissDrag: some Gesture {
+        DragGesture()
+            .updating($dragOffset) { value, state, _ in
+                state = max(0, value.translation.height)
+            }
+            .onEnded { value in
+                if value.translation.height > 80 || value.predictedEndTranslation.height > 220 {
+                    onDismiss()
+                }
+            }
+    }
+
+    private var endButton: some View {
+        Button(action: onEnd) {
+            HStack(spacing: 12) {
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .frame(width: 13, height: 13)
+                Text("END")
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            .font(.custom("Special Gothic Expanded One", size: 14))
+            .foregroundStyle(Color("ButtonRed"))
+            .frame(maxWidth: .infinity)
+            .frame(height: 48)
+            .background(Color.white, in: Capsule())
+            .overlay(Capsule().stroke(Color("ButtonRed"), lineWidth: 1.5))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("End session")
+        .accessibilityHint("Stops recording and ends your session early")
+        .accessibilityInputLabels(["end", "end session", "stop session"])
+    }
+
+    private var continueButton: some View {
+        Button(action: onContinue) {
+            HStack(spacing: 12) {
+                Image(systemName: "play.fill")
+                    .font(.system(size: 14, weight: .bold))
+                Text("CONTINUE")
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            .font(.custom("Special Gothic Expanded One", size: 14))
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .frame(height: 48)
+            .background(Color(white: 0.17), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Continue session")
+        .accessibilityHint("Resumes the timer and timelapse recording")
+        .accessibilityInputLabels(["continue", "resume", "resume session", "keep going"])
     }
 }
 

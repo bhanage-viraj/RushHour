@@ -120,7 +120,17 @@ struct WeeklyAnalyticScreen: View {
     }
 
     private var totalFocus: TimeInterval {
-        max(weekTotalDuration - totalDistracted, 0)
+        focusDuration(for: sessions)
+    }
+
+    private func focusDuration(for selectedSessions: [Session]) -> TimeInterval {
+        let bySession = Dictionary(grouping: weekDistractions, by: \.sessionId)
+        return selectedSessions.reduce(0) { total, session in
+            let distracted = bySession[session.id, default: []].reduce(0) {
+                $0 + $1.duration(overlapping: session)
+            }
+            return total + session.focusDuration(distractedDuration: distracted)
+        }
     }
 
     private var avgSessionLength: TimeInterval {
@@ -173,10 +183,10 @@ struct WeeklyAnalyticScreen: View {
             let distracted = weekDistractions
                 .filter { dayIDs.contains($0.sessionId) }
                 .reduce(0) { $0 + distractedDuration($1) }
-            let total = daySessions.reduce(0) { $0 + $1.actualDuration }
+            let focus = focusDuration(for: daySessions)
             return DayStat(
                 date: day,
-                focusMinutes: max(total - distracted, 0) / 60,
+                focusMinutes: focus / 60,
                 distractedMinutes: distracted / 60,
                 hasSessions: !daySessions.isEmpty
             )
@@ -227,7 +237,7 @@ struct WeeklyAnalyticScreen: View {
             if let token = decodeToken(distraction.tokenData) {
                 var entry = byToken[token] ?? (resolvedName(distraction), 0)
                 entry.duration += duration
-                if entry.name == "App" { entry.name = resolvedName(distraction) }
+                if entry.name == "Blocked App" { entry.name = resolvedName(distraction) }
                 byToken[token] = entry
             } else {
                 byName[resolvedName(distraction), default: 0] += duration
@@ -253,8 +263,7 @@ struct WeeklyAnalyticScreen: View {
     }
 
     private func resolvedName(_ distraction: Distraction) -> String {
-        if let name = distraction.appDisplayName, !name.isEmpty { return name }
-        return distraction.appOpened.isEmpty ? "App" : distraction.appOpened
+        distraction.resolvedAppName ?? "Blocked App"
     }
 
     /// Real app icon from the Screen Time token, with a neutral fallback for
@@ -271,16 +280,6 @@ struct WeeklyAnalyticScreen: View {
                 .font(.system(size: 30))
                 .foregroundColor(.gray)
                 .frame(width: 36, height: 36)
-        }
-    }
-
-    /// Real app name from the token, falling back to the stored display name.
-    @ViewBuilder
-    private func appName(for app: DistractingApp) -> some View {
-        if let token = app.token {
-            Label(token).labelStyle(.titleOnly)
-        } else {
-            Text(app.name)
         }
     }
 
@@ -534,7 +533,7 @@ struct WeeklyAnalyticScreen: View {
 
                                                     appIcon(for: app)
 
-                                                    appName(for: app)
+                                                    Text(app.name)
                                                         .font(.custom("Special Gothic Expanded One", size: 15))
                                                         .foregroundColor(.black)
                                                         .lineLimit(1)

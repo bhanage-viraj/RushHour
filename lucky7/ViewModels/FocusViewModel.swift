@@ -25,7 +25,7 @@ final class FocusViewModel: ObservableObject {
     @Published private(set) var now: Date = .now
 
     static let breakDuration: TimeInterval = 15 * 60
-    static let appGroupId = "group.bhanageviraj.RushHour"
+    static let appGroupId = SharedJailbreakStore.appGroupId
     static let selectionDefaultsKey = "savedFamilyActivitySelection"
 
     private let store = ManagedSettingsStore(named: .rushHourFocus)

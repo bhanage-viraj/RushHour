@@ -17,6 +17,9 @@ struct WrappedVideoScreen: View {
 
     let kind: Kind
     var videoFrames: [UIImage] = []
+    /// Presented over Session Analytics (shows a close button) rather than pushed
+    /// onto a navigation stack (uses the system back button).
+    var isModal = false
 
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
@@ -31,9 +34,10 @@ struct WrappedVideoScreen: View {
     @State private var mediaAspectRatio: CGFloat = 9.0 / 16.0
     @State private var isMigratingLegacyMaster = false
 
-    init(kind: Kind, videoFrames: [UIImage] = []) {
+    init(kind: Kind, videoFrames: [UIImage] = [], isModal: Bool = false) {
         self.kind = kind
         self.videoFrames = videoFrames
+        self.isModal = isModal
         // Session wraps are backed by a `Session`; weekly/monthly by a `PeriodWrap`.
         let sessionId: UUID
         if case .session(let id) = kind { sessionId = id } else { sessionId = UUID() }
@@ -85,7 +89,7 @@ struct WrappedVideoScreen: View {
     private var durationText: String {
         switch kind {
         case .session:
-            return formatDuration(session?.actualDuration ?? 0)
+            return formatDuration(session?.focusDuration() ?? 0)
         case .weekly(_, _, _, _, let duration), .monthly(_, _, _, _, let duration):
             return formatDuration(duration)
         }
@@ -140,9 +144,6 @@ struct WrappedVideoScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            topBar
-                .frame(height: 48)
-
             mediaCard
                 .padding(.horizontal, 20)
                 .padding(.top, 17)
@@ -164,8 +165,9 @@ struct WrappedVideoScreen: View {
                 .ignoresSafeArea()
                 .accessibilityHidden(true)
         }
-        .navigationBarBackButtonHidden(true)
-        .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden(isModal)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar { toolbarContent }
         .hidesFloatingTabBar()
         // Build the player as soon as a real video file URL exists, and rebuild if
         // the persisted path/live URL changes.
@@ -231,62 +233,43 @@ struct WrappedVideoScreen: View {
 
     // MARK: - Subviews
 
-    private var topBar: some View {
-        HStack {
-            Button(action: { dismiss() }) {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 20, weight: .heavy))
-                    .foregroundColor(.white)
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        if isModal {
+            ToolbarItem(placement: .topBarLeading) {
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark")
+                }
+                .accessibilityLabel("Close")
+                .accessibilityInputLabels(["close", "done", "back"])
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Back")
-            .accessibilityInputLabels(["back", "go back"])
+        }
 
-            Spacer()
-
+        ToolbarItem(placement: .topBarTrailing) {
             shareButton
         }
-        // Figma positions the back hit target at x:16 and the share target at x:334
-        // on its 402 pt portrait canvas.
-        .padding(.leading, 16)
-        .padding(.trailing, 20)
     }
 
     private var shareButton: some View {
         Button {
             openShareFlow()
         } label: {
-            shareIcon
-        }
-        .buttonStyle(.plain)
-        .disabled(shareableVideoURL == nil)
-    }
-
-    private var shareIcon: some View {
-        Group {
             if isMigratingLegacyMaster {
                 ProgressView()
                     .controlSize(.small)
-                    .tint(.white)
             } else {
                 Image(systemName: "square.and.arrow.up")
-                    .font(.system(size: 24, weight: .regular))
             }
         }
-            .foregroundColor(.white)
-            .frame(width: 48, height: 48)
-            .contentShape(Rectangle())
-            .opacity(shareableVideoURL == nil && !isMigratingLegacyMaster ? 0.45 : 1)
-            .accessibilityLabel(isMigratingLegacyMaster ? "Updating wrap" : "Share video")
-            .accessibilityHint(
-                isMigratingLegacyMaster ? "Preparing this older wrap for sharing"
-                    : shareableVideoURL != nil ? "Opens sharing options for this wrap video"
-                    : isFinishingExport ? "Video is still finishing"
-                    : "Video unavailable"
-            )
-            .accessibilityInputLabels(["share", "share video", "export"])
+        .disabled(shareableVideoURL == nil)
+        .accessibilityLabel(isMigratingLegacyMaster ? "Updating wrap" : "Share video")
+        .accessibilityHint(
+            isMigratingLegacyMaster ? "Preparing this older wrap for sharing"
+                : shareableVideoURL != nil ? "Opens sharing options for this wrap video"
+                : isFinishingExport ? "Video is still finishing"
+                : "Video unavailable"
+        )
+        .accessibilityInputLabels(["share", "share video", "export"])
     }
 
     private func shareVideo(_ url: URL) {
@@ -454,7 +437,7 @@ struct WrappedVideoScreen: View {
         guard let cleanURL = await SessionWrapMigrationService.makeCleanMasterIfPossible(
             legacyMasterURL: legacyMasterURL,
             rawSourceURL: rawSourceURL,
-            sessionDuration: session.actualDuration
+            sessionDuration: session.focusDuration()
         ) else {
             RecordingDiagnostics.log(
                 "WrappedVideo legacy master retained session=\(session.id) "

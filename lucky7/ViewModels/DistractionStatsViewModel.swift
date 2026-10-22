@@ -34,7 +34,8 @@ class DistractionStat: ObservableObject {
     ) {
         do {
             let descriptor = FetchDescriptor<Distraction>(
-                predicate: #Predicate { $0.sessionId == sessionId}
+                predicate: #Predicate { $0.sessionId == sessionId},
+                sortBy: [SortDescriptor(\Distraction.startTime)]
             )
             
             let fetchedDistraction = try context.fetch(descriptor)
