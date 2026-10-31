@@ -90,7 +90,9 @@ struct WrappedVideoScreen: View {
         switch kind {
         case .session:
             return formatDuration(session?.focusDuration() ?? 0)
-        case .weekly(_, _, _, _, let duration), .monthly(_, _, _, _, let duration):
+        case .weekly(_, _, _, _, let duration):
+            return formatDuration(periodWrap?.totalFocusSeconds ?? duration)
+        case .monthly(_, _, _, _, let duration):
             return formatDuration(duration)
         }
     }
@@ -101,7 +103,10 @@ struct WrappedVideoScreen: View {
             guard let start = session?.startTime else { return "" }
             return start
                 .formatted(.dateTime.day().month(.abbreviated).year())
-        case .weekly(_, _, _, let periodLabel, _), .monthly(_, _, _, let periodLabel, _):
+        case .weekly(_, _, _, let periodLabel, _):
+            guard let periodWrap else { return periodLabel }
+            return WrapStorage.weekLabel(start: periodWrap.periodStart, end: periodWrap.periodEnd)
+        case .monthly(_, _, _, let periodLabel, _):
             return periodLabel
         }
     }
