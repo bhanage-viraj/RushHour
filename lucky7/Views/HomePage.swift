@@ -17,9 +17,11 @@ struct HomePage: View {
     /// Home is hidden — this drives the camera lifecycle so the live preview only runs
     /// while Home is actually visible.
     var isActiveTab: Bool = true
+    var isParentCoverPresented: Bool = false
 
     @EnvironmentObject private var sessionTimer: SessionTimerViewModel
     @EnvironmentObject private var sessionRecording: SessionRecordingViewModel
+    @EnvironmentObject private var pendingSiriSession: PendingSiriSession
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var hours = 0
@@ -31,6 +33,7 @@ struct HomePage: View {
     @AppStorage("homeTipStartSeen") private var tipStartSeen = false
 
     @State private var showSettings = false
+    @State private var settingsCoverActive = false
 
     /// false = home card; true = full-screen session. Drives the enlarge transition.
     @State private var sessionActive = false
@@ -158,7 +161,10 @@ struct HomePage: View {
                     showSetupTip: showSetupTip,
                     showStartTip: showStartTip,
                     onInteraction: { sessionRecording.noteHomePreviewInteraction() },
-                    onSettings: { showSettings = true },
+                    onSettings: {
+                        settingsCoverActive = true
+                        showSettings = true
+                    },
                     onFlip: { sessionRecording.switchCamera() },
                     onZoomToggle: { sessionRecording.toggleBackCameraZoom() },
                     onRecord: startSession
@@ -183,20 +189,31 @@ struct HomePage: View {
         }
         .onAppear {
             if isActiveTab { sessionRecording.noteHomePreviewInteraction() }
+            tryStartPendingSiriSession()
         }
         .onDisappear { sessionRecording.stopHomePreview() }
         .onChange(of: isActiveTab) { _, active in
-            if active { sessionRecording.noteHomePreviewInteraction() }
-            else { sessionRecording.stopHomePreview() }
+            if active {
+                sessionRecording.noteHomePreviewInteraction()
+                tryStartPendingSiriSession()
+            } else {
+                sessionRecording.stopHomePreview()
+            }
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .active:
                 // Mid-session the camera is already live — only warm it up for the idle
                 // home preview, never underneath a recording.
-                if isActiveTab && !sessionActive { sessionRecording.noteHomePreviewInteraction() }
+                if isActiveTab && !sessionActive {
+                    sessionRecording.noteHomePreviewInteraction()
+                    tryStartPendingSiriSession()
+                }
             case .background, .inactive:
-                sessionRecording.stopHomePreview()
+                // Leave the camera alone once the session UI is up. Siri's handoff
+                // can flicker inactive after the request is consumed and before
+                // recording has flipped isRecording.
+                if !sessionActive { sessionRecording.stopHomePreview() }
             @unknown default:
                 break
             }
@@ -208,7 +225,25 @@ struct HomePage: View {
         .onChange(of: isReadyToRecord) { _, ready in
             if ready { tipDurationSeen = true }   // first duration set → drop the setup tip for good
         }
-        .fullScreenCover(isPresented: $showSettings) {
+        .onChange(of: sessionRecording.cameraReady) { _, ready in
+            if ready { tryStartPendingSiriSession() }
+        }
+        .onChange(of: pendingSiriSession.totalSeconds) { _, seconds in
+            if seconds != nil { tryStartPendingSiriSession() }
+        }
+        .onChange(of: isParentCoverPresented) { _, presented in
+            if !presented { tryStartPendingSiriSession() }
+        }
+        .onChange(of: showSettings) { _, presented in
+            // The binding flips before onDismiss. Retry from here too, or a dismiss
+            // that still observes showSettings == true never starts the queued session.
+            settingsCoverActive = presented
+            if !presented { tryStartPendingSiriSession() }
+        }
+        .fullScreenCover(isPresented: $showSettings, onDismiss: {
+            settingsCoverActive = false
+            tryStartPendingSiriSession()
+        }) {
             SettingsScreen()
         }
     }
@@ -223,6 +258,40 @@ struct HomePage: View {
 
     private func endSession() {
         withAnimation(transition) { sessionActive = false }
+    }
+
+    /// Apply a queued Siri / Shortcuts duration and jump straight into recording.
+    private func tryStartPendingSiriSession() {
+        guard isActiveTab, !sessionActive else {
+            // Don't interrupt an in-progress session.
+            if sessionActive { pendingSiriSession.clear() }
+            return
+        }
+        guard !sessionRecording.isRecording else {
+            pendingSiriSession.clear()
+            return
+        }
+        guard scenePhase == .active, !showSettings, !settingsCoverActive,
+              !isParentCoverPresented, SessionEndRecovery.pendingSessionID == nil else { return }
+        guard let total = pendingSiriSession.totalSeconds else { return }
+
+        sessionRecording.noteHomePreviewInteraction()
+        guard sessionRecording.cameraReady else { return }
+
+        // Consume only once we're ready to start — otherwise a later cameraReady
+        // / appear hook can retry with the same queued duration.
+        guard pendingSiriSession.consume() != nil else { return }
+
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        let s = total % 60
+        hours = h
+        minutes = m
+        seconds = s
+        tipDurationSeen = true
+        tipStartSeen = true
+        sessionTimer.configure(hours: h, minutes: m, seconds: s)
+        withAnimation(transition) { sessionActive = true }
     }
 }
 
@@ -972,6 +1041,7 @@ private extension HomePage {
         .environmentObject(SessionTimerViewModel())
         .environmentObject(SessionRecordingViewModel())
         .environmentObject(FocusViewModel())
+        .environmentObject(PendingSiriSession.shared)
         .modelContainer(for: [Session.self, Distraction.self, PeriodWrap.self], inMemory: true)
 }
 
@@ -981,5 +1051,6 @@ private extension HomePage {
         .environmentObject(SessionTimerViewModel())
         .environmentObject(SessionRecordingViewModel())
         .environmentObject(FocusViewModel())
+        .environmentObject(PendingSiriSession.shared)
         .modelContainer(for: [Session.self, Distraction.self, PeriodWrap.self], inMemory: true)
 }

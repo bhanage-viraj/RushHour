@@ -7,6 +7,7 @@ import SwiftUI
 import SwiftData
 
 struct MonitorScreen: View {
+    var onSettingsPresentationChange: (Bool) -> Void = { _ in }
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Session.startTime, order: .reverse) private var sessions: [Session]
     @Query private var periodWraps: [PeriodWrap]
@@ -104,7 +105,9 @@ struct MonitorScreen: View {
             // Keep recaps fresh when viewing history (no-op when nothing's due).
             await WrapRollupService.rollUpIfNeeded(context: modelContext)
         }
-        .fullScreenCover(isPresented: $showSettings) {
+        .fullScreenCover(isPresented: $showSettings, onDismiss: {
+            onSettingsPresentationChange(false)
+        }) {
             SettingsScreen()
         }
     }
@@ -114,6 +117,7 @@ struct MonitorScreen: View {
     private var header: some View {
         HStack {
             Button {
+                onSettingsPresentationChange(true)
                 showSettings = true
             } label: {
                 Image(systemName: "gearshape.fill")
