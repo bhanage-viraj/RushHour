@@ -57,7 +57,13 @@ struct Loading: View {
                         .allowsHitTesting(selectedTab == 0)
                         .zIndex(selectedTab == 0 ? 1 : 0)
 
-                    MonitorScreen(onSettingsPresentationChange: { historySettingsCoverActive = $0 })
+                    MonitorScreen(onSettingsPresentationChange: { presented in
+                        historySettingsCoverActive = presented
+                        // Settings was covering Home. A queued Siri start resumes on Rush Hour.
+                        if !presented, pendingSiriSession.hasPending {
+                            selectedTab = 0
+                        }
+                    })
                         .opacity(selectedTab == 1 ? 1 : 0)
                         .allowsHitTesting(selectedTab == 1)
                         .zIndex(selectedTab == 1 ? 1 : 0)
@@ -84,6 +90,8 @@ struct Loading: View {
                     }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .returnToMySessionsTab)) { _ in
+                    // A queued Siri start owns the tab until Home consumes it.
+                    guard !pendingSiriSession.hasPending else { return }
                     withAnimation(.easeInOut(duration: 0.2)) { selectedTab = 1 }
                 }
                 .fullScreenCover(item: $pendingRecoverySession, onDismiss: {
@@ -92,16 +100,8 @@ struct Loading: View {
                 }) { recovery in
                     SessionDetails(
                         sessionId: recovery.id,
-                        onSave: {
-                            SessionEndRecovery.clear(recovery.id)
-                            pendingRecoverySession = nil
-                            selectedTab = 1
-                        },
-                        onFlowComplete: {
-                            SessionEndRecovery.clear(recovery.id)
-                            pendingRecoverySession = nil
-                            selectedTab = 1
-                        }
+                        onSave: { dismissPendingRecovery(id: recovery.id) },
+                        onFlowComplete: { dismissPendingRecovery(id: recovery.id) }
                     )
                 }
             } else {
@@ -180,9 +180,19 @@ struct Loading: View {
                 selectedTab = 0
                 if !didShowOnboarding {
                     pendingSiriSession.clear()
+                } else {
+                    loadPendingRecoveryIfNeeded()
                 }
             }
         }
+    }
+
+    /// Close crash recovery without sending a queued Siri start to My Sessions.
+    /// Saving still opens My Sessions when nothing is waiting to record.
+    private func dismissPendingRecovery(id: UUID) {
+        SessionEndRecovery.clear(id)
+        pendingRecoverySession = nil
+        selectedTab = pendingSiriSession.hasPending ? 0 : 1
     }
 
     private func loadPendingRecoveryIfNeeded() {

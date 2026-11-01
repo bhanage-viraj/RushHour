@@ -210,7 +210,10 @@ struct HomePage: View {
                     tryStartPendingSiriSession()
                 }
             case .background, .inactive:
-                sessionRecording.stopHomePreview()
+                // Leave the camera alone once the session UI is up. Siri's handoff
+                // can flicker inactive after the request is consumed and before
+                // recording has flipped isRecording.
+                if !sessionActive { sessionRecording.stopHomePreview() }
             @unknown default:
                 break
             }
@@ -229,6 +232,12 @@ struct HomePage: View {
             if seconds != nil { tryStartPendingSiriSession() }
         }
         .onChange(of: isParentCoverPresented) { _, presented in
+            if !presented { tryStartPendingSiriSession() }
+        }
+        .onChange(of: showSettings) { _, presented in
+            // The binding flips before onDismiss. Retry from here too, or a dismiss
+            // that still observes showSettings == true never starts the queued session.
+            settingsCoverActive = presented
             if !presented { tryStartPendingSiriSession() }
         }
         .fullScreenCover(isPresented: $showSettings, onDismiss: {
